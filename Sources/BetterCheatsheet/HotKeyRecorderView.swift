@@ -9,16 +9,32 @@ import SwiftUI
 /// held, via flagsChanged, regardless of whether side-sensitivity is
 /// currently turned on - so turning it on later doesn't require re-recording.
 final class KeyRecorderNSView: NSView {
+    static let recordingPrompt = "New shortcut (ESC to cancel)"
+
     var displayText: String = "" {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            invalidateIntrinsicContentSize()
+        }
     }
     /// keyCode, generic Carbon modifiers, specific held modifier keyCodes
     var onCapture: ((UInt32, UInt32, [UInt32]) -> Void)?
 
     private var isRecording = false {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            invalidateIntrinsicContentSize()
+        }
     }
     private var heldModifierKeyCodes: Set<UInt32> = []
+
+    private static let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+
+    override var intrinsicContentSize: NSSize {
+        let text = isRecording ? Self.recordingPrompt : displayText
+        let width = text.size(withAttributes: [.font: Self.font]).width
+        return NSSize(width: width + 24, height: 28)
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -79,10 +95,10 @@ final class KeyRecorderNSView: NSView {
         NSColor.separatorColor.setStroke()
         path.stroke()
 
-        let text = isRecording ? "Press new shortcut… (Esc to cancel)" : displayText
+        let text = isRecording ? Self.recordingPrompt : displayText
         let attributes: [NSAttributedString.Key: Any] = [
             .foregroundColor: NSColor.labelColor,
-            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .font: Self.font,
         ]
         let size = text.size(withAttributes: attributes)
         let origin = NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2)

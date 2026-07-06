@@ -12,7 +12,7 @@ struct SettingsView: View {
                         hotKey: $settings.hotKey,
                         displayText: HotKeyFormatter.string(for: settings.hotKey)
                     )
-                    .frame(width: 200, height: 28)
+                    .fixedSize()
                 }
 
                 Toggle("Match left/right modifier side", isOn: sideSensitiveBinding)
