@@ -52,6 +52,7 @@ struct EditorView: View {
                         .help("Delete this tab")
                     }
                     .buttonStyle(.bordered)
+                    .focusable(false)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
 

@@ -10,7 +10,7 @@ final class OverlayPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let appState = AppState()
     private let settings = SettingsStore()
     private var mainWindow: NSWindow?
@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayHasPlacement = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setUpMainMenu()
         setUpMainWindow()
         setUpOverlayPanel()
         setUpStatusItem()
@@ -34,6 +35,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeSettings()
 
         showEditor()
+    }
+
+    /// This app is a bare Swift executable (no Xcode project/NIB), so AppKit
+    /// never auto-generates the usual app menu bar - without this, there's no
+    /// menu item anywhere bound to Cmd+W (or Cmd+M), so those keys silently
+    /// do nothing no matter what's key. `performClose:`/`performMiniaturize:`
+    /// need no explicit target: nil routes them through the responder chain
+    /// to whichever window is currently key.
+    private func setUpMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit Better Cheatsheet", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+
+        NSApp.mainMenu = mainMenu
     }
 
     /// Dispatches to the Carbon-based HotKeyManager (no permission needed,
@@ -77,25 +103,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Frosted Glass only applies to the overlay - the main editor window
     /// always stays opaque regardless of theme, since a live desktop blur
     /// behind the window you're actively typing notes in isn't wanted there.
+    /// The overlay panel itself stays non-opaque/clear in every theme (see
+    /// setUpOverlayPanel) so its SwiftUI content can clip to rounded corners;
+    /// which material fills those corners (blur vs solid color) is decided
+    /// entirely by CheatsheetView's own background, not by the window.
     private func applyTheme(_ theme: AppTheme) {
         switch theme {
         case .light:
             NSApp.appearance = NSAppearance(named: .aqua)
-            setOverlayTranslucent(false)
         case .dark:
             NSApp.appearance = NSAppearance(named: .darkAqua)
-            setOverlayTranslucent(false)
         case .frostedGlass:
             NSApp.appearance = nil
-            setOverlayTranslucent(true)
         }
         mainWindow?.isOpaque = true
         mainWindow?.backgroundColor = .windowBackgroundColor
-    }
-
-    private func setOverlayTranslucent(_ translucent: Bool) {
-        overlayPanel?.isOpaque = !translucent
-        overlayPanel?.backgroundColor = translucent ? .clear : .windowBackgroundColor
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -121,32 +143,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "Better Cheatsheet"
         window.isReleasedWhenClosed = false
+        window.delegate = self
         window.contentView = NSHostingView(rootView: EditorView(appState: appState, settings: settings))
         window.center()
         mainWindow = window
     }
 
+    /// The app lives in the menu bar, so once the main window is closed
+    /// (Cmd+W or the red traffic-light button - both route through here)
+    /// there's no reason to keep occupying a Dock slot too.
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === mainWindow else { return }
+        NSApp.setActivationPolicy(.accessory)
+    }
+
     private func setUpOverlayPanel() {
+        // Borderless (no .titled) so there's no reserved title-bar strip
+        // above the content - a titled panel with hidden traffic lights
+        // still reserved that space even with the buttons invisible.
         let panel = OverlayPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 360),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView, .resizable],
+            styleMask: [.nonactivatingPanel, .resizable],
             backing: .buffered,
             defer: false
         )
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        // Hidden title text alone doesn't remove the traffic-light buttons -
-        // this is a HUD-style overlay, not a regular titled window.
-        panel.standardWindowButton(.closeButton)?.isHidden = true
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.isMovableByWindowBackground = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.minSize = NSSize(width: 260, height: 200)
-        panel.contentView = NSHostingView(rootView: CheatsheetView(appState: appState, settings: settings))
+        // Non-opaque/clear permanently (independent of theme): a borderless
+        // window has square corners, so CheatsheetView clips its own content
+        // to a rounded rect - the transparent window corners around that
+        // shape are what make it read as a rounded panel again.
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.contentView = NSHostingView(rootView: CheatsheetView(
+            appState: appState,
+            settings: settings,
+            onOpenMainWindow: { [weak self] in self?.openMainWindowFromOverlay() }
+        ))
 
         // Restores whatever position/size the user last left it at, if any.
         overlayHasPlacement = panel.setFrameUsingName(Self.overlayFrameAutosaveName)
@@ -191,7 +228,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The overlay's "..." button: jumping to the main window means the
+    /// user is done glancing at the overlay, so close it rather than leaving
+    /// it floating behind the editor.
+    private func openMainWindowFromOverlay() {
+        overlayPanel?.orderOut(nil)
+        showEditor()
+    }
+
     @objc private func showEditor() {
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         mainWindow?.makeKeyAndOrderFront(nil)
     }

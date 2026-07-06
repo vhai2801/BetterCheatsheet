@@ -9,6 +9,9 @@ struct TabBarView: View {
     @ObservedObject var appState: AppState
     var allowAdding: Bool = true
     var showsSettingsTab: Bool = false
+    /// Overlay-only: shows a pinned "..." button that opens the main editor
+    /// window, since the overlay itself has no title bar/Dock icon to click.
+    var onOpenMainWindow: (() -> Void)? = nil
 
     @State private var hoveredTabID: UUID?
     @State private var dropTargetTabID: UUID?
@@ -39,9 +42,24 @@ struct TabBarView: View {
                 settingsIconButton
                     .padding(.trailing, 8)
             }
+
+            if let onOpenMainWindow {
+                openMainWindowButton(action: onOpenMainWindow)
+                    .padding(.trailing, 8)
+            }
         }
         .frame(height: 34)
         .background(.thinMaterial)
+    }
+
+    private func openMainWindowButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14))
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .help("Open Better Cheatsheet")
     }
 
     private var settingsIconButton: some View {
@@ -50,6 +68,7 @@ struct TabBarView: View {
                 .font(.system(size: 14))
         }
         .buttonStyle(.plain)
+        .focusable(false)
         .foregroundStyle(appState.isShowingSettings ? Color.accentColor : Color.primary)
         .help("Settings")
     }
@@ -125,6 +144,7 @@ struct TabBarView: View {
                 Image(systemName: "plus")
             }
             .buttonStyle(.plain)
+            .focusable(false)
             .padding(.horizontal, 8)
             .help("Add tab")
         }

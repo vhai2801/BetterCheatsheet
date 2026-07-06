@@ -6,10 +6,11 @@ import SwiftUI
 struct CheatsheetView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var settings: SettingsStore
+    var onOpenMainWindow: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            TabBarView(appState: appState, allowAdding: false)
+            TabBarView(appState: appState, allowAdding: false, onOpenMainWindow: onOpenMainWindow)
             Divider()
 
             if let index = appState.selectedIndex {
@@ -39,5 +40,9 @@ struct CheatsheetView: View {
                 Color(nsColor: .windowBackgroundColor)
             }
         }
+        // The overlay panel itself is borderless with a clear background
+        // (see AppDelegate.setUpOverlayPanel) specifically so this clip is
+        // what gives the panel rounded corners instead of square ones.
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
