@@ -75,6 +75,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Without this, clicking the Dock icon (or re-launching) while the main
+    /// window is closed just activates the app with nothing visible - AppKit
+    /// doesn't reopen a window on its own.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            showEditor()
+        }
+        return true
+    }
+
     private func setUpMainWindow() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 360),
