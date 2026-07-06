@@ -61,15 +61,5 @@ struct EditorView: View {
             }
         }
         .frame(minWidth: 420, minHeight: 320)
-        .background {
-            if settings.theme == .frostedGlass {
-                // .withinWindow (not .behindWindow): blurs this window's own
-                // content instead of live-sampling the desktop/other windows
-                // behind it, which is what was making the main window feel
-                // sluggish - the overlay panel is small and short-lived so it
-                // can afford the expensive true glass-over-desktop look.
-                VisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
-            }
-        }
     }
 }

@@ -129,6 +129,14 @@ final class AppState: ObservableObject {
         tabs[idx].name = newName
     }
 
+    /// Moves the tab `id` to sit right before `targetID`, for drag-to-reorder.
+    func moveTab(id: UUID, before targetID: UUID) {
+        guard id != targetID, let sourceIndex = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let item = tabs.remove(at: sourceIndex)
+        let insertIndex = tabs.firstIndex(where: { $0.id == targetID }) ?? tabs.count
+        tabs.insert(item, at: insertIndex)
+    }
+
     func deleteTab(id: UUID) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs.remove(at: idx)

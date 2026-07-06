@@ -50,25 +50,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &settingsCancellables)
     }
 
+    /// Frosted Glass only applies to the overlay - the main editor window
+    /// always stays opaque regardless of theme, since a live desktop blur
+    /// behind the window you're actively typing notes in isn't wanted there.
     private func applyTheme(_ theme: AppTheme) {
         switch theme {
         case .light:
             NSApp.appearance = NSAppearance(named: .aqua)
-            setWindowsTranslucent(false)
+            setOverlayTranslucent(false)
         case .dark:
             NSApp.appearance = NSAppearance(named: .darkAqua)
-            setWindowsTranslucent(false)
+            setOverlayTranslucent(false)
         case .frostedGlass:
             NSApp.appearance = nil
-            setWindowsTranslucent(true)
+            setOverlayTranslucent(true)
         }
+        mainWindow?.isOpaque = true
+        mainWindow?.backgroundColor = .windowBackgroundColor
     }
 
-    private func setWindowsTranslucent(_ translucent: Bool) {
-        for window in [mainWindow, overlayPanel] {
-            window?.isOpaque = !translucent
-            window?.backgroundColor = translucent ? .clear : .windowBackgroundColor
-        }
+    private func setOverlayTranslucent(_ translucent: Bool) {
+        overlayPanel?.isOpaque = !translucent
+        overlayPanel?.backgroundColor = translucent ? .clear : .windowBackgroundColor
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
