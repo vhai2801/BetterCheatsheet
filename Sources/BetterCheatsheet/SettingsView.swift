@@ -9,15 +9,13 @@ struct SettingsView: View {
                 HStack {
                     Text("Toggle overlay:")
                     HotKeyRecorderView(
-                        keyCode: $settings.hotKey.keyCode,
-                        modifiers: $settings.hotKey.modifiers,
+                        hotKey: $settings.hotKey,
                         displayText: HotKeyFormatter.string(for: settings.hotKey)
                     )
                     .frame(width: 200, height: 28)
                 }
-                Text("Click the field, then press the new key combination. Requires at least one modifier key.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+
+                Toggle("Match left/right modifier side", isOn: sideSensitiveBinding)
             }
 
             Section("Appearance") {
@@ -27,12 +25,26 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                Text("Applies to both the main window and the floating overlay.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Auto-populates left-side keyCodes from the generic modifier mask when
+    /// turning this on for a hotkey that's never been re-recorded since side
+    /// sensitivity was added, so it doesn't silently stop matching anything.
+    private var sideSensitiveBinding: Binding<Bool> {
+        Binding(
+            get: { settings.hotKey.sideSensitive },
+            set: { newValue in
+                var hotKey = settings.hotKey
+                if newValue && hotKey.modifierKeyCodes.isEmpty {
+                    hotKey.modifierKeyCodes = ModifierKeyCode.defaultLeftKeyCodes(forCarbonModifiers: hotKey.modifiers)
+                }
+                hotKey.sideSensitive = newValue
+                settings.hotKey = hotKey
+            }
+        )
     }
 }

@@ -5,21 +5,42 @@ import SwiftUI
 /// Click to focus, then press a key combo to capture it as the new global
 /// hotkey. Requires at least one modifier so it can't accidentally be bound
 /// to a bare letter. Esc while recording cancels without changing anything.
+/// Always captures which specific physical modifier keys (left/right) were
+/// held, via flagsChanged, regardless of whether side-sensitivity is
+/// currently turned on - so turning it on later doesn't require re-recording.
 final class KeyRecorderNSView: NSView {
     var displayText: String = "" {
         didSet { needsDisplay = true }
     }
-    var onCapture: ((UInt32, UInt32) -> Void)?
+    /// keyCode, generic Carbon modifiers, specific held modifier keyCodes
+    var onCapture: ((UInt32, UInt32, [UInt32]) -> Void)?
 
     private var isRecording = false {
         didSet { needsDisplay = true }
     }
+    private var heldModifierKeyCodes: Set<UInt32> = []
 
     override var acceptsFirstResponder: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         isRecording = true
+        heldModifierKeyCodes = []
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        guard isRecording else {
+            super.flagsChanged(with: event)
+            return
+        }
+        let keyCode = UInt32(event.keyCode)
+        guard let category = ModifierKeyCode.category(for: keyCode) else { return }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(category) {
+            heldModifierKeyCodes.insert(keyCode)
+        } else {
+            heldModifierKeyCodes = heldModifierKeyCodes.filter { ModifierKeyCode.category(for: $0) != category }
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -42,7 +63,7 @@ final class KeyRecorderNSView: NSView {
         guard carbonModifiers != 0 else { return }
 
         isRecording = false
-        onCapture?(UInt32(event.keyCode), carbonModifiers)
+        onCapture?(UInt32(event.keyCode), carbonModifiers, Array(heldModifierKeyCodes))
     }
 
     override func resignFirstResponder() -> Bool {
@@ -70,16 +91,16 @@ final class KeyRecorderNSView: NSView {
 }
 
 struct HotKeyRecorderView: NSViewRepresentable {
-    @Binding var keyCode: UInt32
-    @Binding var modifiers: UInt32
+    @Binding var hotKey: HotKeyConfig
     var displayText: String
 
     func makeNSView(context: Context) -> KeyRecorderNSView {
         let view = KeyRecorderNSView()
         view.displayText = displayText
-        view.onCapture = { newKeyCode, newModifiers in
-            keyCode = newKeyCode
-            modifiers = newModifiers
+        view.onCapture = { newKeyCode, newModifiers, newModifierKeyCodes in
+            hotKey.keyCode = newKeyCode
+            hotKey.modifiers = newModifiers
+            hotKey.modifierKeyCodes = newModifierKeyCodes
         }
         return view
     }

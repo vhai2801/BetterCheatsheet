@@ -3,11 +3,29 @@ import Carbon
 /// Turns a (keyCode, Carbon modifiers) pair into a display string like "⌘⇧K".
 enum HotKeyFormatter {
     static func string(for hotKey: HotKeyConfig) -> String {
+        if hotKey.sideSensitive && !hotKey.modifierKeyCodes.isEmpty {
+            return sideSensitiveString(for: hotKey)
+        }
         var result = ""
         if hotKey.modifiers & UInt32(controlKey) != 0 { result += "⌃" }
         if hotKey.modifiers & UInt32(optionKey) != 0 { result += "⌥" }
         if hotKey.modifiers & UInt32(shiftKey) != 0 { result += "⇧" }
         if hotKey.modifiers & UInt32(cmdKey) != 0 { result += "⌘" }
+        result += keyName(for: hotKey.keyCode)
+        return result
+    }
+
+    /// e.g. "R⇧L⌘K" for a right-Shift + left-Command combo.
+    private static func sideSensitiveString(for hotKey: HotKeyConfig) -> String {
+        var result = ""
+        let held = Set(hotKey.modifierKeyCodes)
+        for category in ModifierKeyCode.categoryOrder {
+            if held.contains(category.right) {
+                result += "R" + ModifierKeyCode.symbol(for: category.right)
+            } else if held.contains(category.left) {
+                result += "L" + ModifierKeyCode.symbol(for: category.left)
+            }
+        }
         result += keyName(for: hotKey.keyCode)
         return result
     }

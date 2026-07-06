@@ -18,6 +18,32 @@ enum AppTheme: String, Codable, CaseIterable, Identifiable {
 struct HotKeyConfig: Codable, Equatable {
     var keyCode: UInt32
     var modifiers: UInt32
+    /// Specific physical modifier keyCodes (left/right) captured while
+    /// recording. Only enforced when `sideSensitive` is true; `modifiers`
+    /// (the generic, side-agnostic mask) is what Carbon's RegisterEventHotKey
+    /// actually uses otherwise.
+    var modifierKeyCodes: [UInt32]
+    var sideSensitive: Bool
+
+    init(keyCode: UInt32, modifiers: UInt32, modifierKeyCodes: [UInt32] = [], sideSensitive: Bool = false) {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+        self.modifierKeyCodes = modifierKeyCodes
+        self.sideSensitive = sideSensitive
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case keyCode, modifiers, modifierKeyCodes, sideSensitive
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        keyCode = try container.decode(UInt32.self, forKey: .keyCode)
+        modifiers = try container.decode(UInt32.self, forKey: .modifiers)
+        // Migrates configs saved before side-sensitivity existed.
+        modifierKeyCodes = try container.decodeIfPresent([UInt32].self, forKey: .modifierKeyCodes) ?? []
+        sideSensitive = try container.decodeIfPresent(Bool.self, forKey: .sideSensitive) ?? false
+    }
 }
 
 /// Persists theme + global hotkey to disk (Application Support), independent

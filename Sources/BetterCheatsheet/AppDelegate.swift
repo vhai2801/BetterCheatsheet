@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayPanel: OverlayPanel?
     private var statusItem: NSStatusItem?
     private var hotKeyManager: HotKeyManager?
+    private var sideSensitiveMonitor: SideSensitiveHotKeyMonitor?
     private var settingsCancellables = Set<AnyCancellable>()
 
     private static let overlayFrameAutosaveName = "BetterCheatsheetOverlayFrame"
@@ -29,15 +30,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpMainWindow()
         setUpOverlayPanel()
         setUpStatusItem()
-        registerHotKey(keyCode: settings.hotKey.keyCode, modifiers: settings.hotKey.modifiers)
+        registerHotKey(settings.hotKey)
         observeSettings()
 
         showEditor()
     }
 
-    private func registerHotKey(keyCode: UInt32, modifiers: UInt32) {
-        hotKeyManager = HotKeyManager(keyCode: keyCode, modifiers: modifiers) { [weak self] in
-            self?.toggleOverlay()
+    /// Dispatches to the Carbon-based HotKeyManager (no permission needed,
+    /// but can't distinguish left/right modifiers) or the side-sensitive
+    /// NSEvent-monitor-based path (needs Accessibility permission) depending
+    /// on the user's choice in Settings.
+    private func registerHotKey(_ hotKey: HotKeyConfig) {
+        hotKeyManager = nil
+        sideSensitiveMonitor?.stop()
+        sideSensitiveMonitor = nil
+
+        if hotKey.sideSensitive {
+            AccessibilityPermission.requestIfNeeded()
+            let monitor = SideSensitiveHotKeyMonitor()
+            monitor.start(matching: hotKey) { [weak self] in
+                self?.toggleOverlay()
+            }
+            sideSensitiveMonitor = monitor
+        } else {
+            hotKeyManager = HotKeyManager(keyCode: hotKey.keyCode, modifiers: hotKey.modifiers) { [weak self] in
+                self?.toggleOverlay()
+            }
         }
     }
 
@@ -45,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.$hotKey
             .dropFirst()
             .sink { [weak self] hotKey in
-                self?.registerHotKey(keyCode: hotKey.keyCode, modifiers: hotKey.modifiers)
+                self?.registerHotKey(hotKey)
             }
             .store(in: &settingsCancellables)
 
