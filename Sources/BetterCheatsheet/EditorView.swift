@@ -72,6 +72,7 @@ struct EditorView: View {
                         ShortcutTableView(
                             rows: $appState.tabs[index].shortcutRows,
                             isEditable: true,
+                            settings: settings,
                             focusFirstRowOnAppear: appState.pendingContentFocusTabID == appState.tabs[index].id,
                             onFocusRequestHandled: { appState.pendingContentFocusTabID = nil }
                         )

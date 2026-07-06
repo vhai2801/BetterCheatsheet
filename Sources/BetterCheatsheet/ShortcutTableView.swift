@@ -10,6 +10,12 @@ import SwiftUI
 struct ShortcutTableView: View {
     @Binding var rows: [ShortcutRow]
     var isEditable: Bool
+    /// Column width/inset live here (see Settings.swift) rather than as
+    /// local @State, for two reasons: they need to survive EditorView
+    /// force-remounting this view on every tab switch (`.id(tab.id)`), and
+    /// the main window and overlay - two separate ShortcutTableView
+    /// instances - should show the same column layout, not independent ones.
+    @ObservedObject var settings: SettingsStore
     /// True right after this tab was created via the tab bar's "+" flow -
     /// jumps straight into the first row's Shortcut field on appearing, so
     /// naming the tab and filling in its first entry is one uninterrupted
@@ -23,8 +29,26 @@ struct ShortcutTableView: View {
     /// straight into it without reaching for the mouse.
     @FocusState private var focusedRowID: UUID?
 
-    private let shortcutColumnMinWidth: CGFloat = 90
     private let actionColumnMinWidth: CGFloat = 120
+
+    /// Live-drag overrides for the two column resize handles below - kept
+    /// separate from the persisted settings values so a resize in progress
+    /// doesn't write to disk on every pixel of movement; the persisted
+    /// value is only updated once, in the drag's `onEnded`. The handles use
+    /// the drag's translation (a delta from where the drag started), not its
+    /// absolute position, so `dragStart...` snapshots the pre-drag value once
+    /// per drag to add that delta to.
+    @State private var liveShortcutColumnWidth: CGFloat?
+    @State private var liveShortcutColumnLeadingInset: CGFloat?
+    @State private var dragStartColumnWidth: CGFloat = 0
+    @State private var dragStartLeadingInset: CGFloat = 0
+
+    private var shortcutColumnWidth: CGFloat {
+        liveShortcutColumnWidth ?? settings.shortcutColumnWidth
+    }
+    private var shortcutColumnLeadingInset: CGFloat {
+        liveShortcutColumnLeadingInset ?? settings.shortcutColumnLeadingInset
+    }
 
     /// Row drag-to-reorder state - same gap-based design as TabBarView's tab
     /// reordering (track each row's frame, find which gap the drag's Y
@@ -54,7 +78,7 @@ struct ShortcutTableView: View {
                         if isEditable {
                             Color.clear.frame(width: 16, height: 1)
                         }
-                        Text("Shortcut")
+                        shortcutColumnCell(showsHandles: true) { Text("Shortcut") }
                         Text("Action")
                         if isEditable {
                             Color.clear.frame(width: 16, height: 1)
@@ -77,12 +101,16 @@ struct ShortcutTableView: View {
                                 gripHandle(for: row.id)
                             }
 
-                            cell(
-                                for: $row.shortcut,
-                                rowID: row.id,
-                                minWidth: shortcutColumnMinWidth,
-                                capturesModifierKeys: true
-                            )
+                            shortcutColumnCell(showsHandles: false) {
+                                if isEditable {
+                                    ShortcutTableTextField(text: $row.shortcut, capturesModifierKeys: true)
+                                        .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: row.id))
+                                } else {
+                                    Text(row.shortcut)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .textSelection(.enabled)
+                                }
+                            }
 
                             cell(
                                 for: $row.action,
@@ -181,6 +209,126 @@ struct ShortcutTableView: View {
                     }
                     .onEnded { _ in commitReorder() }
             )
+    }
+
+    /// Wraps the Shortcut column's content (the header label, or a row's
+    /// field/text) so header and every row share identical sizing - and,
+    /// only for the header (`showsHandles`), book-ends it with two visible
+    /// resize handles. Column resizing is available regardless of whether
+    /// row *content* is editable here (isEditable) - the overlay's rows stay
+    /// read-only, but its columns are still resizable, since both windows
+    /// share the same underlying settings. The leading handle sits *inside*
+    /// the same padded box as the label, immediately before it, so
+    /// increasing the inset pushes both of them right together - the handle
+    /// visually tracks alongside "Shortcut" instead of staying pinned at the
+    /// column's outer edge while only the text moves. The trailing handle
+    /// sits outside the box, right after it, so it moves with the box's own
+    /// width instead.
+    @ViewBuilder
+    private func shortcutColumnCell<Content: View>(showsHandles: Bool, @ViewBuilder content: () -> Content) -> some View {
+        let box = HStack(spacing: 4) {
+            if showsHandles {
+                leadingInsetHandle
+            }
+            content()
+        }
+        .padding(.leading, shortcutColumnLeadingInset)
+        .frame(width: shortcutColumnWidth, alignment: .leading)
+
+        HStack(spacing: 0) {
+            box
+            if showsHandles {
+                columnWidthHandle
+            } else {
+                Color.clear.frame(width: 9)
+            }
+        }
+    }
+
+    /// Dragging this (at the Shortcut column's left edge) pushes the text
+    /// further in without changing the column's own width - "the cmd
+    /// letters starting further in."
+    private var leadingInsetHandle: some View {
+        columnResizeHandle {
+            if liveShortcutColumnLeadingInset == nil {
+                dragStartLeadingInset = settings.shortcutColumnLeadingInset
+            }
+        } onDrag: { translationWidth in
+            let newInset = dragStartLeadingInset + translationWidth
+            liveShortcutColumnLeadingInset = min(max(newInset, 0), max(shortcutColumnWidth - 24, 0))
+        } onEnded: {
+            if let liveShortcutColumnLeadingInset {
+                settings.shortcutColumnLeadingInset = liveShortcutColumnLeadingInset
+            }
+            liveShortcutColumnLeadingInset = nil
+        }
+    }
+
+    /// Dragging this (at the boundary between Shortcut and Action) changes
+    /// the Shortcut column's width - "the action column closer to the
+    /// shortcut column" when dragged left, further away when dragged right.
+    private var columnWidthHandle: some View {
+        columnResizeHandle {
+            if liveShortcutColumnWidth == nil {
+                dragStartColumnWidth = settings.shortcutColumnWidth
+            }
+        } onDrag: { translationWidth in
+            let newWidth = dragStartColumnWidth + translationWidth
+            liveShortcutColumnWidth = min(max(newWidth, 50), 400)
+        } onEnded: {
+            if let liveShortcutColumnWidth {
+                settings.shortcutColumnWidth = liveShortcutColumnWidth
+            }
+            liveShortcutColumnWidth = nil
+        }
+    }
+
+    /// A visible (if faint) vertical divider with a wider invisible hit
+    /// target around it, so it's actually discoverable instead of a purely
+    /// invisible strip you'd have to already know the location of. Uses the
+    /// drag's translation (relative to where the drag started) rather than
+    /// its absolute position, so it needs no coordinate-space/frame tracking
+    /// at all - just a plain, default-space DragGesture.
+    private func columnResizeHandle(
+        onDragStart: @escaping () -> Void,
+        onDrag: @escaping (CGFloat) -> Void,
+        onEnded: @escaping () -> Void
+    ) -> some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.primary.opacity(0.15))
+                .frame(width: 1)
+        }
+        .frame(width: 9)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            // onDragStart is called on every change, but each caller only
+            // acts the first time (guarding on its own live-value still
+            // being nil) - simpler than this shared helper trying to know
+            // which of the two live values belongs to it.
+            //
+            // Named coordinate space (not the default .local) is required
+            // here, not optional: the right-hand handle sits right after
+            // the content whose width it drags, so its own position shifts
+            // as a direct side effect of the very drag it's tracking. With
+            // .local, translation is measured against that same shifting
+            // frame, feeding back into itself - the handle read as "stuck"
+            // and jittery. Measuring against the outer ScrollView's frame
+            // instead (stable throughout the drag) fixes both.
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.rowDragSpace))
+                .onChanged { value in
+                    onDragStart()
+                    onDrag(value.translation.width)
+                }
+                .onEnded { _ in onEnded() }
+        )
     }
 
     /// A small floating badge showing just the Shortcut text, anchored next
@@ -289,23 +437,47 @@ struct ShortcutTableView: View {
         }
     }
 
+    /// `width` (fixed) is used for the Shortcut column, whose size is
+    /// user-adjustable; `minWidth` (flexible, grows with content) is used
+    /// for the Action column, which isn't independently resizable - only
+    /// its left edge, which is actually the Shortcut column's right edge.
     @ViewBuilder
     private func cell(
         for text: Binding<String>,
         rowID: UUID?,
-        minWidth: CGFloat,
+        minWidth: CGFloat? = nil,
+        width: CGFloat? = nil,
+        leadingInset: CGFloat = 0,
         onTab: (() -> Void)? = nil,
         capturesModifierKeys: Bool = false
     ) -> some View {
-        if isEditable {
-            ShortcutTableTextField(text: text, onTab: onTab, capturesModifierKeys: capturesModifierKeys)
-                .frame(minWidth: minWidth, alignment: .leading)
-                .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: rowID))
+        Group {
+            if isEditable {
+                ShortcutTableTextField(text: text, onTab: onTab, capturesModifierKeys: capturesModifierKeys)
+                    .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: rowID))
+            } else {
+                Text(text.wrappedValue)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.leading, leadingInset)
+        .modifier(CellWidthModifier(width: width, minWidth: minWidth))
+    }
+}
+
+/// `.frame(width:)` and `.frame(minWidth:)` are different overloads that
+/// can't both be passed in one call - this picks the right one based on
+/// which was supplied.
+private struct CellWidthModifier: ViewModifier {
+    var width: CGFloat?
+    var minWidth: CGFloat?
+
+    func body(content: Content) -> some View {
+        if let width {
+            content.frame(width: width, alignment: .leading)
         } else {
-            Text(text.wrappedValue)
-                .frame(minWidth: minWidth, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+            content.frame(minWidth: minWidth ?? 0, alignment: .leading)
         }
     }
 }

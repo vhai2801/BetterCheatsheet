@@ -55,13 +55,31 @@ final class SettingsStore: ObservableObject {
     @Published var hotKey: HotKeyConfig {
         didSet { save() }
     }
+    /// Shared across every ShortcutTableView instance (main window and
+    /// overlay both read the same SettingsStore) so a column resize sticks
+    /// across tab switches and app relaunches, rather than resetting - a
+    /// per-view @State would reset on every tab switch, since EditorView
+    /// force-remounts ShortcutTableView per tab (see its `.id(tab.id)`).
+    @Published var shortcutColumnWidth: CGFloat {
+        didSet { save() }
+    }
+    @Published var shortcutColumnLeadingInset: CGFloat {
+        didSet { save() }
+    }
 
     private let fileURL: URL
 
     private struct Persisted: Codable {
         var theme: AppTheme
         var hotKey: HotKeyConfig
+        // Optional so decoding a settings.json saved before these fields
+        // existed doesn't fail the whole decode (which would otherwise
+        // silently reset theme/hotKey to defaults too).
+        var shortcutColumnWidth: CGFloat?
+        var shortcutColumnLeadingInset: CGFloat?
     }
+
+    static let defaultShortcutColumnWidth: CGFloat = 90
 
     init() {
         let supportDir = FileManager.default
@@ -74,14 +92,23 @@ final class SettingsStore: ObservableObject {
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
             theme = decoded.theme
             hotKey = decoded.hotKey
+            shortcutColumnWidth = decoded.shortcutColumnWidth ?? Self.defaultShortcutColumnWidth
+            shortcutColumnLeadingInset = decoded.shortcutColumnLeadingInset ?? 0
         } else {
             theme = .light
             hotKey = HotKeyConfig(keyCode: DefaultHotKey.keyCode, modifiers: DefaultHotKey.modifiers)
+            shortcutColumnWidth = Self.defaultShortcutColumnWidth
+            shortcutColumnLeadingInset = 0
         }
     }
 
     private func save() {
-        let persisted = Persisted(theme: theme, hotKey: hotKey)
+        let persisted = Persisted(
+            theme: theme,
+            hotKey: hotKey,
+            shortcutColumnWidth: shortcutColumnWidth,
+            shortcutColumnLeadingInset: shortcutColumnLeadingInset
+        )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
