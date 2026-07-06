@@ -25,6 +25,7 @@ mkdir -p "$APP_DIR/Contents/Resources"
 
 cp "$BIN_PATH/BetterCheatsheet" "$APP_DIR/Contents/MacOS/BetterCheatsheet"
 cp "Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 codesign --force --deep --sign - "$APP_DIR"
 
