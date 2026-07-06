@@ -24,8 +24,9 @@ Built as a Swift Package (not an Xcode project) because only Xcode Command Line 
 - `Sources/BetterCheatsheet/HotKeyFormatter.swift` — pure logic: `HotKeyConfig` → display string (e.g. "⇧⌘K", or "R⇧L⌘K" when side-sensitive), resolves the base character for a keyCode via `UCKeyTranslate` so it's correct regardless of keyboard layout
 - `Sources/BetterCheatsheet/HotKeyRecorderView.swift` — click-to-record `NSViewRepresentable`; captures the next keyDown with at least one modifier held, Esc cancels. Always tracks specific held modifier keyCodes via `flagsChanged` regardless of whether side-sensitivity is on, so enabling it later doesn't require re-recording
 - `Sources/BetterCheatsheet/VisualEffectBackground.swift` — `NSVisualEffectView` wrapper, `blendingMode` configurable per call site (see EditorView vs CheatsheetView above); the hosting window must be non-opaque with a clear background color for `.behindWindow` blending to actually show the desktop through it
-- `Info.plist` — app bundle metadata (`LSMinimumSystemVersion` 13.0, no network entitlements requested)
-- `build.sh` — `swift build` + manual `.app` bundle assembly + ad-hoc `codesign`
+- `Info.plist` — app bundle metadata (`LSMinimumSystemVersion` 13.0, no network entitlements requested, `CFBundleIconFile: AppIcon`)
+- `Resources/AppIcon.icns` — white ⌘ glyph on a purple-to-blue gradient squircle. No Xcode asset catalog available, so this was drawn programmatically (an AppKit/Core Graphics script, not checked into the repo - just the output) and compiled via `sips`/`iconutil`. Regenerate at 1024x1024 if it ever needs to change, then re-run through the same `sips` (resize to each required size) + `iconutil -c icns` pipeline
+- `build.sh` — `swift build` + manual `.app` bundle assembly (including copying `Resources/AppIcon.icns` into `Contents/Resources/`) + ad-hoc `codesign`
 
 ## Current status (as of 2026-07-05)
 - Everything built, pushed, and passively verified via screenshots: main window (bordered tabs, "+", formatting toolbar, checkbox, delete button, gear icon fixed in the corner, opaque regardless of theme), Settings (shortcut recorder, theme picker), overlay (resizable, no traffic lights), no default tab on empty state, drag-to-reorder wired up.
