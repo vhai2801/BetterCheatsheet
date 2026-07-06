@@ -2,15 +2,31 @@ import AppKit
 import Combine
 import Foundation
 
+/// A single row in a non-"Note tab"'s Shortcut/Action table. Plain strings
+/// (no rich text) since the whole point of the table format is a consistent
+/// look across tabs, not per-row formatting.
+struct ShortcutRow: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var shortcut: String = ""
+    var action: String = ""
+}
+
 struct TabItem: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     var name: String
-    /// RTF-encoded rich text (font, bold, size). Source of truth for content.
+    /// RTF-encoded rich text (font, bold, size). Source of truth for content
+    /// when the tab is a "Note tab" (see `editableInOverlay`).
     var rtfData: Data = TabItem.encodeRTF(NSAttributedString(string: "", attributes: TabItem.defaultAttributes))
+    /// Doubles as "is this a freeform Note tab": true shows the rich-text
+    /// editor (and is editable directly in the overlay, as before); false
+    /// shows the templated Shortcut/Action table instead (read-only in the
+    /// overlay, editable only in the main window).
     var editableInOverlay: Bool = false
+    /// Source of truth for content when the tab is NOT a Note tab.
+    var shortcutRows: [ShortcutRow] = []
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, content, rtfData, editableInOverlay
+        case id, name, content, rtfData, editableInOverlay, shortcutRows
     }
 
     init(name: String) {
@@ -23,6 +39,7 @@ struct TabItem: Codable, Identifiable, Equatable {
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         editableInOverlay = try container.decodeIfPresent(Bool.self, forKey: .editableInOverlay) ?? false
+        shortcutRows = try container.decodeIfPresent([ShortcutRow].self, forKey: .shortcutRows) ?? []
         if let data = try container.decodeIfPresent(Data.self, forKey: .rtfData) {
             rtfData = data
         } else {
@@ -38,6 +55,7 @@ struct TabItem: Codable, Identifiable, Equatable {
         try container.encode(name, forKey: .name)
         try container.encode(rtfData, forKey: .rtfData)
         try container.encode(editableInOverlay, forKey: .editableInOverlay)
+        try container.encode(shortcutRows, forKey: .shortcutRows)
     }
 
     static let defaultAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13)]
@@ -86,6 +104,12 @@ final class AppState: ObservableObject {
     }
     /// Transient UI state (not persisted): whether the pinned Settings tab is showing.
     @Published var isShowingSettings: Bool = false
+    /// Transient (not persisted): set right after a new tab is created via
+    /// the "+" flow, naming which tab's content editor should grab focus
+    /// next so typing can continue straight from naming the tab into
+    /// filling it in. Consumed (reset to nil) once that view actually
+    /// applies the focus, so switching tabs later doesn't re-trigger it.
+    @Published var pendingContentFocusTabID: UUID?
 
     private let fileURL: URL
     private let selectionDefaultsKey = "BetterCheatsheet.selectedTabID"
@@ -118,10 +142,34 @@ final class AppState: ObservableObject {
         return tabs.firstIndex(where: { $0.id == id })
     }
 
+    /// Starts with one empty row (rather than the fully-empty table state)
+    /// so there's already a Shortcut field ready to type into right after
+    /// naming the tab - see TabBarView's `commitNewTab` for the focus jump.
     func addTab(named name: String) {
-        let tab = TabItem(name: name)
+        var tab = TabItem(name: name)
+        tab.shortcutRows = [ShortcutRow()]
         tabs.append(tab)
         selectedTabID = tab.id
+    }
+
+    /// Note tabs are only ever created through this - never toggled on an
+    /// existing tab - so there's no way to accidentally flip a tab someone's
+    /// already filled in as a table into a freeform note tab or vice versa.
+    func addNoteTab() {
+        var tab = TabItem(name: uniqueNoteTabName())
+        tab.editableInOverlay = true
+        tabs.append(tab)
+        selectedTabID = tab.id
+    }
+
+    private func uniqueNoteTabName() -> String {
+        let existingNames = Set(tabs.map(\.name))
+        guard existingNames.contains("Note") else { return "Note" }
+        var suffix = 2
+        while existingNames.contains("Note \(suffix)") {
+            suffix += 1
+        }
+        return "Note \(suffix)"
     }
 
     func renameTab(id: UUID, to newName: String) {
@@ -129,11 +177,17 @@ final class AppState: ObservableObject {
         tabs[idx].name = newName
     }
 
-    /// Moves the tab `id` to sit right before `targetID`, for drag-to-reorder.
-    func moveTab(id: UUID, before targetID: UUID) {
-        guard id != targetID, let sourceIndex = tabs.firstIndex(where: { $0.id == id }) else { return }
+    /// Moves the tab `id` to sit at `targetIndex` in the *current* ordering
+    /// (i.e. as if the tab were removed and everything to its right shifted
+    /// left first) - the same convention as `List.onMove`/`move(fromOffsets:toOffset:)`.
+    func moveTab(id: UUID, toIndex targetIndex: Int) {
+        guard let sourceIndex = tabs.firstIndex(where: { $0.id == id }) else { return }
         let item = tabs.remove(at: sourceIndex)
-        let insertIndex = tabs.firstIndex(where: { $0.id == targetID }) ?? tabs.count
+        var insertIndex = targetIndex
+        if sourceIndex < targetIndex {
+            insertIndex -= 1
+        }
+        insertIndex = min(max(insertIndex, 0), tabs.count)
         tabs.insert(item, at: insertIndex)
     }
 
