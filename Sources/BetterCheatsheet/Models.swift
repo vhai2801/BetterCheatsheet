@@ -1,11 +1,80 @@
-import Foundation
+import AppKit
 import Combine
+import Foundation
 
 struct TabItem: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     var name: String
-    var content: String = ""
+    /// RTF-encoded rich text (font, bold, size). Source of truth for content.
+    var rtfData: Data = TabItem.encodeRTF(NSAttributedString(string: "", attributes: TabItem.defaultAttributes))
     var editableInOverlay: Bool = false
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, content, rtfData, editableInOverlay
+    }
+
+    init(name: String) {
+        self.id = UUID()
+        self.name = name
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        editableInOverlay = try container.decodeIfPresent(Bool.self, forKey: .editableInOverlay) ?? false
+        if let data = try container.decodeIfPresent(Data.self, forKey: .rtfData) {
+            rtfData = data
+        } else {
+            // Migrates tabs saved before rich text was added.
+            let plain = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
+            rtfData = TabItem.encodeRTF(NSAttributedString(string: plain, attributes: TabItem.defaultAttributes))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(rtfData, forKey: .rtfData)
+        try container.encode(editableInOverlay, forKey: .editableInOverlay)
+    }
+
+    static let defaultAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13)]
+
+    static func encodeRTF(_ attributedString: NSAttributedString) -> Data {
+        (try? attributedString.data(
+            from: NSRange(location: 0, length: attributedString.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )) ?? Data()
+    }
+
+    /// Keyed by the raw RTF bytes, so repeated SwiftUI body re-evaluations
+    /// with unchanged content (the common case) skip re-parsing entirely.
+    private static let decodeCache = NSCache<NSData, NSAttributedString>()
+
+    static func decodeRTF(_ data: Data) -> NSAttributedString {
+        let key = data as NSData
+        if let cached = decodeCache.object(forKey: key) {
+            return cached
+        }
+        guard !data.isEmpty,
+              let attributedString = try? NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+              )
+        else {
+            return NSAttributedString(string: "", attributes: TabItem.defaultAttributes)
+        }
+        decodeCache.setObject(attributedString, forKey: key)
+        return attributedString
+    }
+
+    var attributedContent: NSAttributedString {
+        get { TabItem.decodeRTF(rtfData) }
+        set { rtfData = TabItem.encodeRTF(newValue) }
+    }
 }
 
 final class AppState: ObservableObject {
@@ -29,11 +98,10 @@ final class AppState: ObservableObject {
         fileURL = supportDir.appendingPathComponent("tabs.json")
 
         if let data = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder().decode([TabItem].self, from: data),
-           !decoded.isEmpty {
+           let decoded = try? JSONDecoder().decode([TabItem].self, from: data) {
             tabs = decoded
         } else {
-            tabs = [TabItem(name: "General")]
+            tabs = []
         }
 
         if let savedIDString = UserDefaults.standard.string(forKey: selectionDefaultsKey),
@@ -64,9 +132,6 @@ final class AppState: ObservableObject {
     func deleteTab(id: UUID) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs.remove(at: idx)
-        if tabs.isEmpty {
-            tabs = [TabItem(name: "General")]
-        }
         if selectedTabID == id {
             selectedTabID = tabs.first?.id
         }

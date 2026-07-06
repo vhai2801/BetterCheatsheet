@@ -159,6 +159,10 @@ private struct TabButton: View {
         .frame(maxWidth: isRenaming || isHovered ? nil : 110, alignment: .leading)
         .background(isSelected ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.2), lineWidth: 1)
+        )
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             draftName = tab.name

@@ -7,6 +7,8 @@ struct EditorView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var settings: SettingsStore
 
+    @State private var formattingController = TextFormattingController()
+
     var body: some View {
         VStack(spacing: 0) {
             TabBarView(appState: appState, showsSettingsTab: true)
@@ -16,15 +18,40 @@ struct EditorView: View {
                 SettingsView(settings: settings)
             } else if let index = appState.selectedIndex {
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack {
+                    HStack(spacing: 10) {
+                        Button(action: formattingController.toggleBold) {
+                            Image(systemName: "bold")
+                        }
+                        .help("Bold")
+
+                        Button(action: formattingController.decreaseFontSize) {
+                            Image(systemName: "textformat.size.smaller")
+                        }
+                        .help("Decrease font size")
+
+                        Button(action: formattingController.increaseFontSize) {
+                            Image(systemName: "textformat.size.larger")
+                        }
+                        .help("Increase font size")
+
+                        Button(action: formattingController.showFontPanel) {
+                            Image(systemName: "textformat")
+                        }
+                        .help("Change font")
+
                         Spacer()
+
                         Toggle("Editable in overlay", isOn: $appState.tabs[index].editableInOverlay)
                             .toggleStyle(.checkbox)
                     }
+                    .buttonStyle(.bordered)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
 
-                    AutoReplaceTextEditor(text: $appState.tabs[index].content)
+                    AutoReplaceTextEditor(
+                        attributedText: $appState.tabs[index].attributedContent,
+                        formattingController: formattingController
+                    )
                 }
             } else {
                 Spacer()
@@ -36,7 +63,12 @@ struct EditorView: View {
         .frame(minWidth: 420, minHeight: 320)
         .background {
             if settings.theme == .frostedGlass {
-                VisualEffectBackground(material: .underWindowBackground)
+                // .withinWindow (not .behindWindow): blurs this window's own
+                // content instead of live-sampling the desktop/other windows
+                // behind it, which is what was making the main window feel
+                // sluggish - the overlay panel is small and short-lived so it
+                // can afford the expensive true glass-over-desktop look.
+                VisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
             }
         }
     }

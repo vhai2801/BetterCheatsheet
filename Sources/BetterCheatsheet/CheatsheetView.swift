@@ -15,11 +15,10 @@ struct CheatsheetView: View {
             if let index = appState.selectedIndex {
                 let tab = appState.tabs[index]
                 if tab.editableInOverlay {
-                    AutoReplaceTextEditor(text: $appState.tabs[index].content)
+                    AutoReplaceTextEditor(attributedText: $appState.tabs[index].attributedContent)
                 } else {
                     ScrollView {
-                        Text(tab.content)
-                            .font(.system(size: 13))
+                        Text(AttributedString(tab.attributedContent))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)

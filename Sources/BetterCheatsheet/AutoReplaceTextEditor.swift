@@ -1,27 +1,29 @@
 import AppKit
 import SwiftUI
 
-/// A plain-text NSTextView wrapper that live-replaces exact ALL-CAPS keyword
-/// matches (see TextReplacement.map) with their symbol as soon as a word
-/// boundary character is typed after them.
+/// A rich-text NSTextView wrapper (bold, font family/size via the standard
+/// Font Panel) that live-replaces exact ALL-CAPS keyword matches (see
+/// TextReplacement.map) with their symbol as soon as a word boundary
+/// character is typed after them.
 struct AutoReplaceTextEditor: NSViewRepresentable {
-    @Binding var text: String
+    @Binding var attributedText: NSAttributedString
     var isEditable: Bool = true
-    var font: NSFont = .systemFont(ofSize: 13)
+    var formattingController: TextFormattingController?
 
     func makeNSView(context: Context) -> NSScrollView {
         let textView = NSTextView()
         textView.delegate = context.coordinator
         textView.isEditable = isEditable
-        textView.isRichText = false
+        textView.isRichText = true
+        textView.usesFontPanel = true
         textView.allowsUndo = true
-        textView.font = font
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
-        textView.string = text
+        textView.textStorage?.setAttributedString(attributedText)
+        formattingController?.textView = textView
 
         let scrollView = NSScrollView()
         scrollView.documentView = textView
@@ -34,11 +36,17 @@ struct AutoReplaceTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        // Without this, the Coordinator keeps writing into whichever tab's
+        // binding was current the moment it was first created, silently
+        // routing every keystroke into the wrong tab's content.
+        context.coordinator.parent = self
+
         guard let textView = nsView.documentView as? NSTextView else { return }
         textView.isEditable = isEditable
-        textView.font = font
-        if textView.string != text {
-            textView.string = text
+        formattingController?.textView = textView
+
+        if textView.string != attributedText.string {
+            textView.textStorage?.setAttributedString(attributedText)
             textView.setSelectedRange(NSRange(location: 0, length: 0))
         }
     }
@@ -56,7 +64,7 @@ struct AutoReplaceTextEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            parent.text = textView.string
+            parent.attributedText = textView.attributedString()
         }
 
         /// Intercepts a single incoming boundary character (anything that isn't an
