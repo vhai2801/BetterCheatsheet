@@ -51,7 +51,12 @@ struct ShortcutTableView: View {
                         let isLastRow = row.id == rows.last?.id
 
                         GridRow {
-                            cell(for: $row.shortcut, rowID: row.id, minWidth: shortcutColumnMinWidth)
+                            cell(
+                                for: $row.shortcut,
+                                rowID: row.id,
+                                minWidth: shortcutColumnMinWidth,
+                                capturesModifierKeys: true
+                            )
 
                             cell(
                                 for: $row.action,
@@ -114,10 +119,11 @@ struct ShortcutTableView: View {
         for text: Binding<String>,
         rowID: UUID?,
         minWidth: CGFloat,
-        onTab: (() -> Void)? = nil
+        onTab: (() -> Void)? = nil,
+        capturesModifierKeys: Bool = false
     ) -> some View {
         if isEditable {
-            ShortcutTableTextField(text: text, onTab: onTab)
+            ShortcutTableTextField(text: text, onTab: onTab, capturesModifierKeys: capturesModifierKeys)
                 .frame(minWidth: minWidth, alignment: .leading)
                 .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: rowID))
         } else {
@@ -152,9 +158,13 @@ private struct FocusIfNeeded: ViewModifier {
 ///   NSTextFieldDelegate (unlike NSTextViewDelegate) has no pre-change hook
 /// - an optional Tab interception (see `onTab`), used only on the last row's
 ///   Action field to append a new row instead of tabbing off into nothing
+/// - (Shortcut column only, `capturesModifierKeys`) inserting a modifier's
+///   own symbol the instant it's physically pressed, so "⇧⌘K" can be typed
+///   by literally holding Shift+Cmd+K instead of spelling out "SHIFT" etc.
 private struct ShortcutTableTextField: NSViewRepresentable {
     @Binding var text: String
     var onTab: (() -> Void)?
+    var capturesModifierKeys: Bool = false
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
@@ -162,6 +172,9 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.delegate = context.coordinator
+        if capturesModifierKeys {
+            context.coordinator.startObservingModifierKeys(for: field)
+        }
         return field
     }
 
@@ -178,9 +191,58 @@ private struct ShortcutTableTextField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: ShortcutTableTextField
+        private weak var field: NSTextField?
+        private var flagsMonitor: Any?
+        private var heldModifierFlags: NSEvent.ModifierFlags = []
+
+        private static let modifierSymbols: [(flag: NSEvent.ModifierFlags, symbol: String)] = [
+            (.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘"),
+        ]
 
         init(_ parent: ShortcutTableTextField) {
             self.parent = parent
+        }
+
+        deinit {
+            if let flagsMonitor {
+                NSEvent.removeMonitor(flagsMonitor)
+            }
+        }
+
+        func startObservingModifierKeys(for field: NSTextField) {
+            self.field = field
+            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                self?.handleFlagsChanged(event)
+                return event
+            }
+        }
+
+        /// Only reacts while this exact field is the one being edited
+        /// (`currentEditor() != nil` - a plain NSTextField's field editor
+        /// doesn't reliably route flagsChanged back through the field
+        /// itself via the responder chain, hence a local monitor rather than
+        /// overriding `flagsChanged` the way KeyRecorderNSView does), and
+        /// only on a fresh press (a flag turning on that wasn't already
+        /// held) - not on release, and not while it's already held.
+        private func handleFlagsChanged(_ event: NSEvent) {
+            guard let field, field.currentEditor() != nil else { return }
+            let newFlags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            let pressed = newFlags.subtracting(heldModifierFlags)
+            heldModifierFlags = newFlags
+            for (flag, symbol) in Self.modifierSymbols where pressed.contains(flag) {
+                insert(symbol, into: field)
+            }
+        }
+
+        private func insert(_ symbol: String, into field: NSTextField) {
+            guard let editor = field.currentEditor() else { return }
+            let text = field.stringValue as NSString
+            let range = editor.selectedRange
+            let newText = text.replacingCharacters(in: range, with: symbol)
+            field.stringValue = newText
+            parent.text = newText
+            let newCursor = range.location + (symbol as NSString).length
+            editor.selectedRange = NSRange(location: newCursor, length: 0)
         }
 
         func controlTextDidChange(_ obj: Notification) {
@@ -193,7 +255,10 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         /// if the character immediately before the cursor is a non-uppercase
         /// boundary (almost always the space the user just typed) and the
         /// word right before that boundary is an exact ALL-CAPS match,
-        /// swap it for its symbol and restore the cursor position.
+        /// swap it for its symbol and restore the cursor position. Still
+        /// needed alongside the modifier-key capture above: it's the only
+        /// way to get symbols (like TAB/RETURN/arrows) that have no physical
+        /// "press it" equivalent here.
         private func applyAutoReplaceIfNeeded(to field: NSTextField) {
             guard let editor = field.currentEditor() else { return }
             let text = field.stringValue as NSString

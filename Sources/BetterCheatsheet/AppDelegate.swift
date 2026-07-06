@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var mainWindow: NSWindow?
     private var overlayPanel: OverlayPanel?
     private var statusItem: NSStatusItem?
+    private var showCheatsheetMenuItem: NSMenuItem?
     private var hotKeyManager: HotKeyManager?
     private var sideSensitiveMonitor: SideSensitiveHotKeyMonitor?
     private var settingsCancellables = Set<AnyCancellable>()
@@ -98,6 +99,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.applyTheme(theme)
             }
             .store(in: &settingsCancellables)
+
+        settings.$hotKey
+            .sink { [weak self] hotKey in
+                self?.updateStatusItemTitle(for: hotKey)
+            }
+            .store(in: &settingsCancellables)
+    }
+
+    /// Keeps the "Show Cheatsheet" item's native, right-aligned/dimmed
+    /// shortcut display in sync with Settings - it's purely cosmetic (see
+    /// HotKeyFormatter.menuItemKeyEquivalent), the real toggle is
+    /// HotKeyManager/SideSensitiveHotKeyMonitor, but showing the wrong
+    /// (or a permanently stale) shortcut here would be misleading.
+    private func updateStatusItemTitle(for hotKey: HotKeyConfig) {
+        if let (key, mask) = HotKeyFormatter.menuItemKeyEquivalent(for: hotKey) {
+            showCheatsheetMenuItem?.keyEquivalent = key
+            showCheatsheetMenuItem?.keyEquivalentModifierMask = mask
+        } else {
+            showCheatsheetMenuItem?.keyEquivalent = ""
+            showCheatsheetMenuItem?.keyEquivalentModifierMask = []
+        }
     }
 
     /// Frosted Glass only applies to the overlay - the main editor window
@@ -199,7 +221,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             accessibilityDescription: "Better Cheatsheet"
         )
 
-        let showItem = NSMenuItem(title: "Show Cheatsheet", action: #selector(toggleOverlay), keyEquivalent: "k")
+        // No keyEquivalent: this menu isn't part of NSApp.mainMenu, so it
+        // wouldn't actually trigger the global hotkey - see
+        // updateStatusItemTitle, which puts the real shortcut in the title
+        // text instead and keeps it in sync with Settings.
+        let showItem = NSMenuItem(title: "Show Cheatsheet", action: #selector(toggleOverlay), keyEquivalent: "")
         showItem.target = self
         let editItem = NSMenuItem(title: "Edit Notes", action: #selector(showEditor), keyEquivalent: "")
         editItem.target = self
@@ -213,6 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(quitItem)
         item.menu = menu
         statusItem = item
+        showCheatsheetMenuItem = showItem
+        updateStatusItemTitle(for: settings.hotKey)
     }
 
     @objc private func toggleOverlay() {

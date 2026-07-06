@@ -126,7 +126,10 @@ struct TabBarView: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 14))
         }
-        .buttonStyle(.plain)
+        // TabBarIconButtonStyle's padding is part of the button's label, so
+        // (unlike plain .buttonStyle(.plain)) the whole padded square is
+        // clickable, not just the glyph's own tight bounds.
+        .buttonStyle(TabBarIconButtonStyle())
         .focusable(false)
         .help("Open Better Cheatsheet")
     }
@@ -360,7 +363,18 @@ private struct TabBarIconButtonStyle: ButtonStyle {
             .padding(6)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(configuration.isPressed ? Color.primary.opacity(0.15) : Color.clear)
+                    // Never truly alpha-0, even at rest: the overlay panel
+                    // has isMovableByWindowBackground = true, and AppKit
+                    // decides "drag the window" vs. "hit the control" by
+                    // testing the actual rendered alpha at the click point -
+                    // a fully transparent Color.clear fill gets treated as
+                    // window background, so clicks around the icon (but not
+                    // exactly on its opaque pixels) started a window-drag
+                    // instead of reaching the button. 0.02 is far above the
+                    // 8-bit rounding floor (~1/255) so it always renders as a
+                    // nonzero-alpha pixel, but is visually indistinguishable
+                    // from fully clear.
+                    .fill(configuration.isPressed ? Color.primary.opacity(0.15) : Color.primary.opacity(0.02))
             )
     }
 }

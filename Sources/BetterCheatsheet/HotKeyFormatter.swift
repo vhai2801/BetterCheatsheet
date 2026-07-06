@@ -1,7 +1,53 @@
+import AppKit
 import Carbon
 
 /// Turns a (keyCode, Carbon modifiers) pair into a display string like "⌘⇧K".
 enum HotKeyFormatter {
+    /// The (keyEquivalent, modifierMask) pair for showing this hotkey as a
+    /// native, right-aligned/dimmed NSMenuItem shortcut - purely cosmetic,
+    /// since a status-item menu isn't part of NSApp.mainMenu so this
+    /// keyEquivalent won't actually fire the global hotkey (HotKeyManager/
+    /// SideSensitiveHotKeyMonitor do that separately). NSMenuItem has no
+    /// left/right modifier concept, so a side-sensitive combo still displays
+    /// using the generic `modifiers`/`keyCode` - e.g. a Right-Shift-only
+    /// hotkey shows as plain ⇧. Returns nil if the key has no representable
+    /// character at all (shouldn't happen for anything recordable via
+    /// HotKeyRecorderView, but guards against an unmapped keyCode regardless).
+    static func menuItemKeyEquivalent(for hotKey: HotKeyConfig) -> (key: String, mask: NSEvent.ModifierFlags)? {
+        guard let key = menuItemKeyCharacter(for: hotKey.keyCode) else { return nil }
+        var mask: NSEvent.ModifierFlags = []
+        if hotKey.modifiers & UInt32(controlKey) != 0 { mask.insert(.control) }
+        if hotKey.modifiers & UInt32(optionKey) != 0 { mask.insert(.option) }
+        if hotKey.modifiers & UInt32(shiftKey) != 0 { mask.insert(.shift) }
+        if hotKey.modifiers & UInt32(cmdKey) != 0 { mask.insert(.command) }
+        return (key, mask)
+    }
+
+    /// Unlike `keyName(for:)` (a display symbol like "⏎" or "Space"), these
+    /// are the literal characters/function-key constants NSMenuItem expects
+    /// in its own `keyEquivalent` string for non-printable keys.
+    private static let menuItemSpecialKeyCharacters: [UInt32: String] = [
+        UInt32(kVK_Space): " ",
+        UInt32(kVK_Return): "\r",
+        UInt32(kVK_Tab): "\t",
+        UInt32(kVK_Delete): "\u{8}",
+        UInt32(kVK_ForwardDelete): "\u{F728}",
+        UInt32(kVK_Escape): "\u{1B}",
+        UInt32(kVK_LeftArrow): "\u{F702}",
+        UInt32(kVK_RightArrow): "\u{F703}",
+        UInt32(kVK_UpArrow): "\u{F700}",
+        UInt32(kVK_DownArrow): "\u{F701}",
+        UInt32(kVK_Home): "\u{F729}",
+        UInt32(kVK_End): "\u{F72B}",
+        UInt32(kVK_PageUp): "\u{F72C}",
+        UInt32(kVK_PageDown): "\u{F72D}",
+    ]
+
+    private static func menuItemKeyCharacter(for keyCode: UInt32) -> String? {
+        if let special = menuItemSpecialKeyCharacters[keyCode] { return special }
+        return character(forKeyCode: keyCode)?.lowercased()
+    }
+
     static func string(for hotKey: HotKeyConfig) -> String {
         if hotKey.sideSensitive && !hotKey.modifierKeyCodes.isEmpty {
             return sideSensitiveString(for: hotKey)
