@@ -11,27 +11,42 @@ struct TabBarView: View {
     @State private var hoveredTabID: UUID?
     @State private var isAddingTab = false
     @State private var newTabName = ""
+    @FocusState private var isNewTabFieldFocused: Bool
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(appState.tabs) { tab in
-                    tabButton(for: tab)
-                }
+        HStack(spacing: 4) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(appState.tabs) { tab in
+                        tabButton(for: tab)
+                    }
 
-                if allowAdding {
-                    addTabControl
+                    if allowAdding {
+                        addTabControl
+                    }
                 }
-
-                if showsSettingsTab {
-                    SettingsTabButton(isSelected: appState.isShowingSettings, onSelect: selectSettings)
-                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+
+            if showsSettingsTab {
+                Spacer(minLength: 4)
+                settingsIconButton
+                    .padding(.trailing, 8)
+            }
         }
         .frame(height: 34)
         .background(.thinMaterial)
+    }
+
+    private var settingsIconButton: some View {
+        Button(action: selectSettings) {
+            Image(systemName: "gearshape")
+                .font(.system(size: 14))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(appState.isShowingSettings ? Color.accentColor : Color.primary)
+        .help("Settings")
     }
 
     @ViewBuilder
@@ -77,8 +92,13 @@ struct TabBarView: View {
                 .textFieldStyle(.plain)
                 .frame(width: 100)
                 .padding(.horizontal, 8)
+                .focused($isNewTabFieldFocused)
+                .onAppear { isNewTabFieldFocused = true }
                 .onSubmit { commitNewTab() }
                 .onExitCommand { isAddingTab = false; newTabName = "" }
+                .onChange(of: isNewTabFieldFocused) { focused in
+                    if !focused { commitNewTab() }
+                }
         } else {
             Button {
                 newTabName = ""
@@ -112,6 +132,7 @@ private struct TabButton: View {
 
     @State private var isRenaming = false
     @State private var draftName = ""
+    @FocusState private var isRenameFieldFocused: Bool
 
     var body: some View {
         Group {
@@ -119,8 +140,13 @@ private struct TabButton: View {
                 TextField("Tab name", text: $draftName)
                     .textFieldStyle(.plain)
                     .frame(minWidth: 60)
+                    .focused($isRenameFieldFocused)
+                    .onAppear { isRenameFieldFocused = true }
                     .onSubmit { commitRename() }
                     .onExitCommand { isRenaming = false }
+                    .onChange(of: isRenameFieldFocused) { focused in
+                        if !focused { commitRename() }
+                    }
             } else {
                 Text(tab.name)
                     .lineLimit(1)
@@ -154,22 +180,5 @@ private struct TabButton: View {
     private func commitRename() {
         onRename(draftName)
         isRenaming = false
-    }
-}
-
-private struct SettingsTabButton: View {
-    let isSelected: Bool
-    var onSelect: () -> Void
-
-    var body: some View {
-        Label("Settings", systemImage: "gearshape")
-            .labelStyle(.titleAndIcon)
-            .font(.system(size: 12))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
     }
 }
