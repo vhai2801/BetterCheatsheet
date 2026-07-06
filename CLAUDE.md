@@ -28,9 +28,40 @@ Built as a Swift Package (not an Xcode project) because only Xcode Command Line 
 - `Resources/AppIcon.icns` — white ⌘ glyph on a purple-to-blue gradient squircle. No Xcode asset catalog available, so this was drawn programmatically (an AppKit/Core Graphics script, not checked into the repo - just the output) and compiled via `sips`/`iconutil`. Regenerate at 1024x1024 if it ever needs to change, then re-run through the same `sips` (resize to each required size) + `iconutil -c icns` pipeline
 - `build.sh` — `swift build` + manual `.app` bundle assembly (including copying `Resources/AppIcon.icns` into `Contents/Resources/`) + ad-hoc `codesign`
 
+## Release process (Homebrew cask distribution)
+The app is distributed as a Homebrew cask so the user can install/update it from the terminal on any machine, without needing this repo cloned there. **This is the runbook to follow whenever asked to "update the app and push a new version."**
+
+**Where things live:**
+- Main repo: `https://github.com/vhai2801/BetterCheatsheet` (public — was private, made public specifically so release assets are downloadable by `brew install` with zero auth on any machine)
+- Tap repo: `https://github.com/vhai2801/homebrew-better-cheatsheet` (public), local clone at `~/Projects/homebrew-better-cheatsheet` on this machine — **on a different machine, `git clone https://github.com/vhai2801/homebrew-better-cheatsheet.git` first**, it won't already be there
+- Cask file: `Casks/better-cheatsheet.rb` in the tap repo
+- User installs with: `brew tap vhai2801/better-cheatsheet && brew install --cask better-cheatsheet`
+- User updates with: `brew update && brew upgrade --cask better-cheatsheet`
+
+**To cut a new release (vX.Y.Z), in order:**
+1. In `~/Projects/BetterCheatsheet`, bump `CFBundleShortVersionString` in `Info.plist` to the new version (semver, matches the git tag and cask `version` — keep all three in sync)
+2. `./build.sh --release` (release config, not the debug config used during day-to-day dev)
+3. Package it: `ditto -c -k --keepParent .build/arm64-apple-macosx/release/BetterCheatsheet.app BetterCheatsheet-X.Y.Z.zip` — **use `ditto`, not `zip -r`**, it's the macOS-safe way to zip an `.app` bundle without mangling it
+4. `shasum -a 256 BetterCheatsheet-X.Y.Z.zip` — save this hash, the cask needs it
+5. Commit the version bump, push, then tag and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+6. `gh release create vX.Y.Z BetterCheatsheet-X.Y.Z.zip --title "vX.Y.Z" --notes "..."` — attaches the zip as a release asset
+7. Verify the asset is actually publicly fetchable: `curl -sL -o /dev/null -w "%{http_code}\n" "https://github.com/vhai2801/BetterCheatsheet/releases/download/vX.Y.Z/BetterCheatsheet-X.Y.Z.zip"` should print `200`
+8. In `~/Projects/homebrew-better-cheatsheet`, edit `Casks/better-cheatsheet.rb`: update `version` and `sha256` to the new values (the `url` templates `#{version}` in automatically, no need to touch it)
+9. Commit and push the cask repo
+
+After step 9, `brew update && brew upgrade --cask better-cheatsheet` on any machine (including this one) will pick up the new version. Test with `brew upgrade --cask better-cheatsheet` locally to confirm before considering the release done.
+
+**Things that will bite you if forgotten:**
+- The cask requires `depends_on macos: :ventura` (bare symbol) — the `">= :ventura"` string comparison form is deprecated and prints a warning on every tap/install
+- The very first time a machine taps this repo, Homebrew's tap-trust security feature blocks loading the cask until `brew trust vhai2801/better-cheatsheet` is run once — if `brew install` fails with "Refusing to load cask ... from untrusted tap," that's why
+- The app isn't notarized (no paid Apple Developer ID, only ad-hoc `codesign --sign -`), so downloaded copies get a quarantine flag that would trigger a Gatekeeper "unidentified developer" prompt on first launch. The cask's `postflight` block strips it via `xattr -dr com.apple.quarantine` — **do not remove this block**, or every fresh install needs a manual right-click-Open the first time
+- Keep `CFBundleShortVersionString`, the git tag, and the cask's `version` field all identical (e.g. all `1.0.0`, tag `v1.0.0`) - the cask's `url` is built from `#{version}` and will 404 if they drift
+
 ## Current status (as of 2026-07-05)
 - Everything built, pushed, and passively verified via screenshots: main window (bordered tabs, "+", formatting toolbar, checkbox, delete button, gear icon fixed in the corner, opaque regardless of theme), Settings (shortcut recorder, theme picker), overlay (resizable, no traffic lights), no default tab on empty state, drag-to-reorder wired up.
-- Git repo at `~/Projects/BetterCheatsheet` (independent of the user's home-directory repo, never touched), pushed to private GitHub repo `https://github.com/vhai2801/BetterCheatsheet`.
+- Git repo at `~/Projects/BetterCheatsheet` (independent of the user's home-directory repo, never touched), pushed to GitHub repo `https://github.com/vhai2801/BetterCheatsheet` (public as of 2026-07-06, see Release process below for why).
+- v1.0.0 released and distributed via Homebrew cask (`vhai2801/better-cheatsheet`) — see "Release process" section above for the full runbook, tested end-to-end (tap, trust, install, upgrade all confirmed working on this machine).
+- App also has an icon now (see AppIcon.icns entry above) and was copied to `/Applications` (later superseded by the brew-managed install, which moves it to the same path anyway).
 - Fixed this session, all pushed: (1) new tabs were silently untypable — stale `Coordinator.parent` binding; (2) add/rename tab fields got permanently stuck if you clicked away instead of pressing Return — missing focus management; (3) Dock icon did nothing when the main window was closed — missing `applicationShouldHandleReopen`; (4) auto-created "General" tab removed, both from code and from the user's already-persisted `tabs.json`; (5) Frosted Glass was affecting the main window too — user asked for overlay-only, now the main window never goes translucent regardless of theme; (6) hover-to-expand fired on every tab the cursor crossed while scrolling the tab strip, feeling buggy — now debounced 250ms; (7) "+" required scrolling to reach once there were enough tabs — pinned outside the scroll view next to Settings; (8) main window default size increased 480x360 → 760x560; (9) overlay panel had no `.resizable` in its style mask at all (literally couldn't be resized) and didn't remember position/size — both fixed; (10) overlay still couldn't visually resize even after adding `.resizable` — a hardcoded `.frame(width: 420, height: 360)` on `CheatsheetView`'s root was fighting it, replaced with a flexible frame; (11) overlay showed traffic-light buttons despite hidden title text — now explicitly hidden; (12) likely fixed the persistent tab-switch lag — `Coordinator.isProgrammaticUpdate` now guards against writing tab-switch content changes back into the model (see AutoReplaceTextEditor.swift entry above); (13) added a delete-tab button, and `deleteTab` now jumps to the tab at the same index ("next") instead of always the first tab.
 - Note: while testing, a freshly-launched window appeared to fill the entire screen regardless of the requested 760x560 size. The user attributed this to Amethyst (their tiling window manager) auto-tiling new windows, not an app bug — not investigated further on that basis.
 - Added left/right modifier-side matching for the hotkey (opt-in checkbox in Settings; off by default, no permission needed; on requires Accessibility permission since Carbon can't do side-matching at all). Settings captions/help text removed per request - just the controls now, no secondary description lines under them.
