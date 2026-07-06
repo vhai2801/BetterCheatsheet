@@ -26,6 +26,22 @@ struct ShortcutTableView: View {
     private let shortcutColumnMinWidth: CGFloat = 90
     private let actionColumnMinWidth: CGFloat = 120
 
+    /// Row drag-to-reorder state - same gap-based design as TabBarView's tab
+    /// reordering (track each row's frame, find which gap the drag's Y
+    /// position falls in, commit on release), just tracking vertical
+    /// position instead of horizontal. The existing row separator line
+    /// doubles as the gap marker: normally a plain dim divider, it turns
+    /// into an accent-colored drop indicator while a drag targets that gap.
+    @State private var rowFrames: [UUID: CGRect] = [:]
+    @State private var gripFrames: [UUID: CGRect] = [:]
+    @State private var draggingRowID: UUID?
+    @State private var draggedRowOriginFrame: CGRect?
+    @State private var draggedGripOriginFrame: CGRect?
+    @State private var dragTranslation: CGFloat = 0
+    @State private var insertionIndex: Int?
+
+    private static let rowDragSpace = "BetterCheatsheet.rowDrag"
+
     var body: some View {
         ScrollView {
             if rows.isEmpty {
@@ -35,6 +51,9 @@ struct ShortcutTableView: View {
             } else {
                 Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow {
+                        if isEditable {
+                            Color.clear.frame(width: 16, height: 1)
+                        }
                         Text("Shortcut")
                         Text("Action")
                         if isEditable {
@@ -45,12 +64,19 @@ struct ShortcutTableView: View {
                     .foregroundStyle(.secondary)
 
                     Divider()
-                        .gridCellColumns(isEditable ? 3 : 2)
+                        .gridCellColumns(isEditable ? 4 : 2)
+
+                    gapView(at: 0)
 
                     ForEach($rows) { $row in
-                        let isLastRow = row.id == rows.last?.id
+                        let index = rows.firstIndex(where: { $0.id == row.id }) ?? 0
+                        let isLastRow = index == rows.count - 1
 
                         GridRow {
+                            if isEditable {
+                                gripHandle(for: row.id)
+                            }
+
                             cell(
                                 for: $row.shortcut,
                                 rowID: row.id,
@@ -83,9 +109,34 @@ struct ShortcutTableView: View {
                                 .foregroundStyle(.secondary)
                             }
                         }
+                        // Collapsed (not removed) while dragging so the grip
+                        // handle's own drag gesture isn't torn down
+                        // mid-drag - the floating copy is what's visible.
+                        .frame(height: draggingRowID == row.id ? 0 : nil)
+                        .opacity(draggingRowID == row.id ? 0 : 1)
+                        .clipped()
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: RowFramePreferenceKey.self,
+                                    value: [row.id: geo.frame(in: .named(Self.rowDragSpace))]
+                                )
+                            }
+                        )
+
+                        gapView(at: index + 1)
                     }
                 }
                 .padding(12)
+            }
+        }
+        .coordinateSpace(name: Self.rowDragSpace)
+        .onPreferenceChange(RowFramePreferenceKey.self) { rowFrames = $0 }
+        .onPreferenceChange(GripFramePreferenceKey.self) { gripFrames = $0 }
+        .overlay(alignment: .topLeading) {
+            if let draggingRowID, let row = rows.first(where: { $0.id == draggingRowID }),
+               let gripFrame = draggedGripOriginFrame {
+                floatingShortcutBadge(row, near: gripFrame)
             }
         }
         .onAppear {
@@ -94,6 +145,130 @@ struct ShortcutTableView: View {
         .onChange(of: focusFirstRowOnAppear) { newValue in
             applyPendingFocusIfNeeded(shouldFocus: newValue)
         }
+    }
+
+    /// A small drag handle - dragging the whole row would fight the text
+    /// fields' own click-to-place-cursor behavior, so only this handle
+    /// carries the reorder gesture. minimumDistance keeps a plain click from
+    /// starting a drag. Tracks its own frame separately from the row's (see
+    /// GripFramePreferenceKey) so the floating preview can stay anchored
+    /// near the handle instead of centered across the whole (potentially
+    /// very wide, thanks to the Action column) row.
+    private func gripHandle(for rowID: UUID) -> some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .frame(width: 16, height: 20)
+            .contentShape(Rectangle())
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: GripFramePreferenceKey.self,
+                        value: [rowID: geo.frame(in: .named(Self.rowDragSpace))]
+                    )
+                }
+            )
+            .gesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.rowDragSpace))
+                    .onChanged { value in
+                        if draggingRowID != rowID {
+                            draggingRowID = rowID
+                            draggedRowOriginFrame = rowFrames[rowID]
+                            draggedGripOriginFrame = gripFrames[rowID]
+                        }
+                        dragTranslation = value.translation.height
+                        updateInsertionIndex(forY: value.location.y, draggingID: rowID)
+                    }
+                    .onEnded { _ in commitReorder() }
+            )
+    }
+
+    /// A small floating badge showing just the Shortcut text, anchored next
+    /// to the grip handle (not centered across the whole row, which - with
+    /// a wide Action column - made the preview appear to "jump" away from
+    /// the handle toward the row's far end) and following the cursor
+    /// vertically only (rows reorder top-to-bottom, so horizontal cursor
+    /// jitter is ignored).
+    private func floatingShortcutBadge(_ row: ShortcutRow, near gripFrame: CGRect) -> some View {
+        Text(row.shortcut.isEmpty ? "—" : row.shortcut)
+            .font(.system(size: 13, weight: .medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.primary.opacity(0.2), lineWidth: 1)
+                    )
+            )
+            .fixedSize()
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+            .position(x: gripFrame.midX + 24, y: gripFrame.midY + dragTranslation)
+            .allowsHitTesting(false)
+    }
+
+    /// Which gap between rows `y` currently falls in, skipping the row being
+    /// dragged itself - same convention as TabBarView's horizontal version.
+    private func updateInsertionIndex(forY y: CGFloat, draggingID: UUID) {
+        let orderedIDs = rows.map(\.id)
+        var newIndex = orderedIDs.count
+        for (i, id) in orderedIDs.enumerated() {
+            guard id != draggingID, let frame = rowFrames[id] else { continue }
+            if y < frame.midY {
+                newIndex = i
+                break
+            }
+        }
+        insertionIndex = newIndex
+    }
+
+    private func commitReorder() {
+        if let draggingRowID, let insertionIndex {
+            moveRow(id: draggingRowID, toIndex: insertionIndex)
+        }
+        draggingRowID = nil
+        draggedRowOriginFrame = nil
+        draggedGripOriginFrame = nil
+        dragTranslation = 0
+        insertionIndex = nil
+    }
+
+    /// Same convention as AppState.moveTab(id:toIndex:): `targetIndex` is a
+    /// position in the *current* ordering, as if the row were removed first.
+    private func moveRow(id: UUID, toIndex targetIndex: Int) {
+        guard let sourceIndex = rows.firstIndex(where: { $0.id == id }) else { return }
+        var insertAt = targetIndex
+        if sourceIndex < insertAt { insertAt -= 1 }
+        insertAt = min(max(insertAt, 0), rows.count)
+        let item = rows.remove(at: sourceIndex)
+        rows.insert(item, at: insertAt)
+    }
+
+    /// A gap at position `index` (before row `index`, or at the very end
+    /// when `index == rows.count`). Interior gaps (strictly between two
+    /// rows) always show the plain dim separator; the very top/bottom gaps
+    /// are invisible except while actively targeted, since there was never
+    /// a line before the first or after the last row. Any gap becomes a
+    /// bold accent-colored drop indicator when it's the current drag target.
+    private func gapView(at index: Int) -> some View {
+        let isActive = draggingRowID != nil && insertionIndex == index
+        let isInteriorGap = index > 0 && index < rows.count
+        return Group {
+            if isActive {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(height: 3)
+            } else if isInteriorGap {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.15))
+                    .frame(height: 1)
+            } else {
+                Color.clear.frame(height: 1)
+            }
+        }
+        .gridCellColumns(isEditable ? 4 : 2)
+        .animation(.easeOut(duration: 0.12), value: insertionIndex)
     }
 
     /// Called both from `onAppear` (the common case: the view mounts after
@@ -132,6 +307,20 @@ struct ShortcutTableView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
+    }
+}
+
+private struct RowFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct GripFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 
