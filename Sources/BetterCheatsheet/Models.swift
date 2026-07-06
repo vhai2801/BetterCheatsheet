@@ -141,7 +141,9 @@ final class AppState: ObservableObject {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs.remove(at: idx)
         if selectedTabID == id {
-            selectedTabID = tabs.first?.id
+            // Whatever now sits at the same index was "next"; if the deleted
+            // tab was last, fall back to the new last tab.
+            selectedTabID = tabs.isEmpty ? nil : tabs[min(idx, tabs.count - 1)].id
         }
     }
 

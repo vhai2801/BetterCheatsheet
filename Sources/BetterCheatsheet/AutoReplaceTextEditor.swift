@@ -22,7 +22,9 @@ struct AutoReplaceTextEditor: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
+        context.coordinator.isProgrammaticUpdate = true
         textView.textStorage?.setAttributedString(attributedText)
+        context.coordinator.isProgrammaticUpdate = false
         formattingController?.textView = textView
 
         let scrollView = NSScrollView()
@@ -46,8 +48,16 @@ struct AutoReplaceTextEditor: NSViewRepresentable {
         formattingController?.textView = textView
 
         if textView.string != attributedText.string {
+            // setAttributedString(_:) triggers the same textDidChange path as
+            // a user edit. Without this guard, every tab switch would
+            // immediately write the just-set content straight back into the
+            // model - a full RTF re-encode + tabs.json rewrite on the main
+            // thread on every switch, which is exactly the kind of thing
+            // that shows up as a perceptible hitch.
+            context.coordinator.isProgrammaticUpdate = true
             textView.textStorage?.setAttributedString(attributedText)
             textView.setSelectedRange(NSRange(location: 0, length: 0))
+            context.coordinator.isProgrammaticUpdate = false
         }
     }
 
@@ -57,13 +67,14 @@ struct AutoReplaceTextEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: AutoReplaceTextEditor
+        var isProgrammaticUpdate = false
 
         init(_ parent: AutoReplaceTextEditor) {
             self.parent = parent
         }
 
         func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
+            guard !isProgrammaticUpdate, let textView = notification.object as? NSTextView else { return }
             parent.attributedText = textView.attributedString()
         }
 

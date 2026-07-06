@@ -117,6 +117,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        // Hidden title text alone doesn't remove the traffic-light buttons -
+        // this is a HUD-style overlay, not a regular titled window.
+        panel.standardWindowButton(.closeButton)?.isHidden = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.isMovableByWindowBackground = true
         panel.level = .floating
         panel.hidesOnDeactivate = false

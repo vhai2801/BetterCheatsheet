@@ -31,7 +31,7 @@ struct CheatsheetView: View {
                 Spacer()
             }
         }
-        .frame(width: 420, height: 360)
+        .frame(minWidth: 260, maxWidth: .infinity, minHeight: 200, maxHeight: .infinity)
         .background {
             if settings.theme == .frostedGlass {
                 VisualEffectBackground(material: .hudWindow)

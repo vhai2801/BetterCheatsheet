@@ -43,6 +43,13 @@ struct EditorView: View {
 
                         Toggle("Editable in overlay", isOn: $appState.tabs[index].editableInOverlay)
                             .toggleStyle(.checkbox)
+
+                        Button(role: .destructive) {
+                            appState.deleteTab(id: appState.tabs[index].id)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .help("Delete this tab")
                     }
                     .buttonStyle(.bordered)
                     .padding(.horizontal, 12)
