@@ -24,17 +24,18 @@ struct TabBarView: View {
                     ForEach(appState.tabs) { tab in
                         tabButton(for: tab)
                     }
-
-                    if allowAdding {
-                        addTabControl
-                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
             }
 
+            // Fixed outside the scroll view, alongside Settings, so neither
+            // ever gets pushed out of view by tab overflow.
+            if allowAdding {
+                addTabControl
+            }
+
             if showsSettingsTab {
-                Spacer(minLength: 4)
                 settingsIconButton
                     .padding(.trailing, 8)
             }

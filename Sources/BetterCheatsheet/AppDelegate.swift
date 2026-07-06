@@ -19,6 +19,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyManager: HotKeyManager?
     private var settingsCancellables = Set<AnyCancellable>()
 
+    private static let overlayFrameAutosaveName = "BetterCheatsheetOverlayFrame"
+    /// Whether the overlay already has a remembered position/size (from this
+    /// launch's restore, or from having been shown once already this run) -
+    /// only auto-centers near the cursor when this is still false.
+    private var overlayHasPlacement = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         setUpMainWindow()
         setUpOverlayPanel()
@@ -90,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setUpMainWindow() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -105,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setUpOverlayPanel() {
         let panel = OverlayPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 360),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -116,7 +122,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.minSize = NSSize(width: 260, height: 200)
         panel.contentView = NSHostingView(rootView: CheatsheetView(appState: appState, settings: settings))
+
+        // Restores whatever position/size the user last left it at, if any.
+        overlayHasPlacement = panel.setFrameUsingName(Self.overlayFrameAutosaveName)
+        panel.setFrameAutosaveName(Self.overlayFrameAutosaveName)
+
         overlayPanel = panel
     }
 
@@ -148,7 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if panel.isVisible {
             panel.orderOut(nil)
         } else {
-            positionOverlayNearCursor(panel)
+            if !overlayHasPlacement {
+                positionOverlayNearCursor(panel)
+                overlayHasPlacement = true
+            }
             panel.makeKeyAndOrderFront(nil)
         }
     }
