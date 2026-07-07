@@ -10,7 +10,7 @@ struct CheatsheetView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TabBarView(appState: appState, allowAdding: false, onOpenMainWindow: onOpenMainWindow)
+            TabBarView(appState: appState, allowAdding: false, allowReordering: false, onOpenMainWindow: onOpenMainWindow)
             Divider()
 
             if let index = appState.selectedIndex {

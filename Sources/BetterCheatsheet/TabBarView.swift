@@ -19,6 +19,16 @@ struct TabBarView: View {
     @ObservedObject var appState: AppState
     var allowAdding: Bool = true
     var showsSettingsTab: Bool = false
+    /// False in the overlay (see CheatsheetView) - reordering only makes
+    /// sense in the main window, where it's actually meant to be a
+    /// persistent organizational action. Without this, a tab's own
+    /// `.highPriorityGesture` drag recognizer (below) intercepts every
+    /// mouseDown on a tab before the overlay panel's own
+    /// `isMovableByWindowBackground` gets a chance at it, so trying to drag
+    /// the whole floating overlay by grabbing it over a tab looked "buggy" -
+    /// it silently started an (unwanted, and pointless in a read-only
+    /// overlay) tab-reorder drag instead of moving the window.
+    var allowReordering: Bool = true
     /// Overlay-only: shows a pinned "..." button that opens the main editor
     /// window, since the overlay itself has no title bar/Dock icon to click.
     var onOpenMainWindow: (() -> Void)? = nil
@@ -181,7 +191,18 @@ struct TabBarView: View {
         .onHover { hovering in setHovered(tab, hovering: hovering) }
         // High priority (over TabButton's own tap gesture) but only
         // actually engages once the drag exceeds 8pt - a short click still
-        // falls through untouched to select the tab.
+        // falls through untouched to select the tab. Unconditionally
+        // attached (not wrapped in an `if allowReordering` branch) - an
+        // earlier version of this fix did branch on it, which changed this
+        // view's underlying type per-render (`_ConditionalContent`) and
+        // broke in-flight drag tracking for real tab reordering in the main
+        // window too (a three-finger-drag reorder no longer completed).
+        // `including: allowReordering ? .all : .none` disables the gesture
+        // via `GestureMask` instead - same modifier chain/view identity
+        // every time, just inert in the overlay, where reordering
+        // shouldn't happen anyway (see `allowReordering`'s doc comment) and
+        // this gesture claiming the mouseDown first was blocking the
+        // overlay panel's own `isMovableByWindowBackground` drag.
         .highPriorityGesture(
             DragGesture(minimumDistance: 8, coordinateSpace: .named(Self.dragSpace))
                 .onChanged { value in
@@ -195,7 +216,8 @@ struct TabBarView: View {
                 }
                 .onEnded { _ in
                     commitReorder()
-                }
+                },
+            including: allowReordering ? .all : .none
         )
     }
 
