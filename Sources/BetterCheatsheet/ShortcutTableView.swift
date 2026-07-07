@@ -281,12 +281,18 @@ struct ShortcutTableView: View {
     /// right together - the handle visually tracks alongside "Shortcut"
     /// instead of staying pinned at the column's outer edge while only the
     /// text moves. The trailing handle sits outside the box, right after
-    /// it, so it moves with the box's own width instead.
+    /// it, so it moves with the box's own width instead. Rows reserve the
+    /// same leading width the handle would occupy (a clear spacer instead
+    /// of the handle itself) - without it, "Shortcut" sat 13pt further
+    /// right than every row's actual value, since only the header had
+    /// something occupying that space before its label.
     @ViewBuilder
     private func shortcutColumnCell<Content: View>(showsHandles: Bool, @ViewBuilder content: () -> Content) -> some View {
         let box = HStack(spacing: 4) {
             if showsHandles {
                 leadingInsetHandle
+            } else {
+                Color.clear.frame(width: 9)
             }
             content()
         }
