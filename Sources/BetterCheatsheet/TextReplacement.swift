@@ -39,4 +39,34 @@ enum TextReplacement {
         guard let symbol = map[word] else { return nil }
         return (range, symbol)
     }
+
+    /// Symbol -> spelled-out name, for the Settings toggle that displays
+    /// shortcuts as text instead of symbols (e.g. "⌘⇧K" -> "Cmd Shift K").
+    /// Deliberately a separate table from `map` above rather than reusing
+    /// it in reverse: `map` is keyed by ALL-CAPS keywords for live-typing
+    /// auto-replace, with duplicate entries ("CMD"/"COMMAND" -> "⌘") that
+    /// don't have a single obvious reverse, and different capitalization
+    /// needs ("Cmd", not "CMD" or "COMMAND", reads better in a display).
+    private static let symbolNames: [Character: String] = [
+        "⌘": "Cmd", "⌥": "Option", "⌃": "Ctrl", "⇧": "Shift",
+        "⇪": "Caps Lock", "⇥": "Tab", "⏎": "Return", "⌫": "Delete",
+        "⌦": "Fwd Delete", "⎋": "Esc", "␣": "Space",
+        "↑": "Up", "↓": "Down", "←": "Left", "→": "Right",
+        "⇞": "Page Up", "⇟": "Page Down", "↖": "Home", "↘": "End",
+    ]
+
+    /// Converts a shortcut string built from the symbols above (e.g.
+    /// "⌘⇧K") into a spelled-out equivalent ("Cmd Shift K"). Characters
+    /// with no known name - the actual key itself, e.g. "K" - pass through
+    /// unchanged. Shortcuts are always a run of single-character symbols
+    /// followed by one single-character key (however it was entered -
+    /// physical modifier capture or the ALL-CAPS auto-replace both only
+    /// ever insert single characters), so splitting and rejoining by
+    /// character is safe for well-formed shortcuts; arbitrary free text
+    /// typed into the field instead would just come out oddly spaced,
+    /// not garbled.
+    static func spelledOut(_ shortcut: String) -> String {
+        guard !shortcut.isEmpty else { return shortcut }
+        return shortcut.map { symbolNames[$0] ?? String($0) }.joined(separator: " ")
+    }
 }

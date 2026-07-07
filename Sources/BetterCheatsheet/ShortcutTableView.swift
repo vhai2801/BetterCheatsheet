@@ -192,7 +192,7 @@ struct ShortcutTableView: View {
                                     ShortcutTableTextField(text: $row.shortcut, fontSize: settings.shortcutTableFontSize, capturesModifierKeys: true)
                                         .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: row.id))
                                 } else {
-                                    Text(row.shortcut)
+                                    Text(settings.shortcutsDisplayAsText ? TextReplacement.spelledOut(row.shortcut) : row.shortcut)
                                         .font(.system(size: settings.shortcutTableFontSize))
                                         .fixedSize(horizontal: false, vertical: true)
                                         .textSelection(.enabled)

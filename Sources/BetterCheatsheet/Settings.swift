@@ -72,6 +72,15 @@ final class SettingsStore: ObservableObject {
     @Published var shortcutTableFontSize: CGFloat {
         didSet { save() }
     }
+    /// Display-only: when true, read-only Shortcut cells (the overlay, and
+    /// the drag-reorder floating badge) show `TextReplacement.spelledOut(_:)`
+    /// ("Cmd Shift K") instead of the stored symbols ("⌘⇧K"). Doesn't touch
+    /// what's actually stored, and doesn't affect the main window's editable
+    /// Shortcut fields - those stay symbol-based, tied to the live physical-
+    /// modifier-key capture feature.
+    @Published var shortcutsDisplayAsText: Bool {
+        didSet { save() }
+    }
 
     private let fileURL: URL
 
@@ -84,6 +93,7 @@ final class SettingsStore: ObservableObject {
         var shortcutColumnWidth: CGFloat?
         var shortcutColumnLeadingInset: CGFloat?
         var shortcutTableFontSize: CGFloat?
+        var shortcutsDisplayAsText: Bool?
     }
 
     static let defaultShortcutColumnWidth: CGFloat = 90
@@ -103,12 +113,14 @@ final class SettingsStore: ObservableObject {
             shortcutColumnWidth = decoded.shortcutColumnWidth ?? Self.defaultShortcutColumnWidth
             shortcutColumnLeadingInset = decoded.shortcutColumnLeadingInset ?? 0
             shortcutTableFontSize = decoded.shortcutTableFontSize ?? Self.defaultShortcutTableFontSize
+            shortcutsDisplayAsText = decoded.shortcutsDisplayAsText ?? false
         } else {
             theme = .light
             hotKey = HotKeyConfig(keyCode: DefaultHotKey.keyCode, modifiers: DefaultHotKey.modifiers)
             shortcutColumnWidth = Self.defaultShortcutColumnWidth
             shortcutColumnLeadingInset = 0
             shortcutTableFontSize = Self.defaultShortcutTableFontSize
+            shortcutsDisplayAsText = false
         }
     }
 
@@ -118,7 +130,8 @@ final class SettingsStore: ObservableObject {
             hotKey: hotKey,
             shortcutColumnWidth: shortcutColumnWidth,
             shortcutColumnLeadingInset: shortcutColumnLeadingInset,
-            shortcutTableFontSize: shortcutTableFontSize
+            shortcutTableFontSize: shortcutTableFontSize,
+            shortcutsDisplayAsText: shortcutsDisplayAsText
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         try? data.write(to: fileURL, options: .atomic)

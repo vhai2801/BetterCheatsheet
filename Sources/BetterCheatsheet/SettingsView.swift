@@ -26,6 +26,10 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
+
+            Section("Shortcut Display") {
+                Toggle("Show shortcuts as text (Cmd Shift K) instead of symbols (⌘⇧K)", isOn: $settings.shortcutsDisplayAsText)
+            }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
