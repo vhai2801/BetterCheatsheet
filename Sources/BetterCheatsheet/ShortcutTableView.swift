@@ -724,18 +724,17 @@ private struct FocusIfNeeded: ViewModifier {
 /// A plain single-line NSTextField used for every table cell. SwiftUI's
 /// TextField has no way on macOS 13 to intercept individual keystrokes or
 /// Tab, so this wraps NSTextField directly to get both:
-/// - the same ALL-CAPS -> symbol auto-replace as the rich-text editor
-///   (TextReplacement), applied reactively after each keystroke since
-///   NSTextFieldDelegate (unlike NSTextViewDelegate) has no pre-change hook
 /// - an optional Tab interception (see `onTab`), used only on the last row's
 ///   Action field to append a new row instead of tabbing off into nothing
 /// - (Shortcut column only, `capturesModifierKeys`) inserting a modifier's
 ///   own symbol the instant it's physically pressed, so "⇧⌘K" can be typed
 ///   by literally holding Shift+Cmd+K instead of spelling out "SHIFT" etc.
-///   The physical Space bar gets the same treatment ("␣" instead of a
-///   literal space) - deliberately tied to this same flag, so the Action
-///   column (which never sets `capturesModifierKeys`) still types normal
-///   spaces
+///   The physical Space, Return, and arrow keys get the same treatment
+///   ("␣"/"⏎"/"↑↓←→" instead of their normal effect); Tab does too, but
+///   distinguishes a single press (inserts "⇥") from two presses in quick
+///   succession (real Tab navigation) - see `handleTab`. All of this is
+///   deliberately tied to `capturesModifierKeys`, so the Action column
+///   (which never sets it) keeps completely normal text-field behavior
 private struct ShortcutTableTextField: NSViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat = 13
@@ -775,10 +774,27 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         private var flagsMonitor: Any?
         private var keyDownMonitor: Any?
         private var heldModifierFlags: NSEvent.ModifierFlags = []
+        /// A single Tab press is ambiguous - it should normally become the
+        /// "⇥" symbol, but Tab is also the only way to reach the next field,
+        /// so a *second* Tab arriving quickly is read as "no, really move
+        /// focus" instead. The first press schedules the symbol insertion
+        /// after this window elapses; a second press within it cancels that
+        /// and performs real Tab navigation instead. Same idea for
+        /// Shift+Tab, against `selectPreviousKeyView` instead.
+        private var pendingTabWorkItem: DispatchWorkItem?
+        private var lastTabPressAt: Date?
+        private static let tabDoubleTapWindow: TimeInterval = 0.35
 
         private static let modifierSymbols: [(flag: NSEvent.ModifierFlags, symbol: String)] = [
             (.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘"),
         ]
+        /// A Hyper key (e.g. Caps Lock remapped via Karabiner/Hammerspoon to
+        /// send Ctrl+Opt+Cmd+Shift at once) reports all four as newly-pressed
+        /// in a single `flagsChanged` event, unlike a person actually holding
+        /// four physical keys down one at a time (each of which fires its own
+        /// event with only one new flag). That's the signal used below to
+        /// tell the two apart - matched only when all four turn on together.
+        private static let hyperFlags: NSEvent.ModifierFlags = [.control, .option, .shift, .command]
 
         init(_ parent: ShortcutTableTextField) {
             self.parent = parent
@@ -791,6 +807,7 @@ private struct ShortcutTableTextField: NSViewRepresentable {
             if let keyDownMonitor {
                 NSEvent.removeMonitor(keyDownMonitor)
             }
+            pendingTabWorkItem?.cancel()
         }
 
         func startObservingModifierKeys(for field: NSTextField) {
@@ -822,9 +839,38 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         /// held) - not on release, and not while it's already held.
         private func handleFlagsChanged(_ event: NSEvent) {
             guard let field, field.currentEditor() != nil else { return }
-            let newFlags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+
+            // A Caps Lock key remapped to something else (e.g. Hyper) can
+            // still leave the OS's own Caps Lock state engaged alongside the
+            // remap, depending on the remapping tool - scoped to only while
+            // this Shortcut cell is being edited (the same guard above),
+            // rather than suppressing Caps Lock app-wide.
+            if event.modifierFlags.contains(.capsLock) {
+                CapsLockSuppressor.forceOff()
+            }
+
+            let newFlags = event.modifierFlags.intersection([.command, .shift, .option, .control, .function])
             let pressed = newFlags.subtracting(heldModifierFlags)
             heldModifierFlags = newFlags
+
+            // All four at once, in one event, reads as the Hyper key - write
+            // the word instead of stacking "⌃⌥⇧⌘" one at a time (see
+            // hyperFlags above for how this is told apart from actually
+            // holding four separate keys).
+            guard pressed != Self.hyperFlags else {
+                insert("Hyper ", into: field)
+                return
+            }
+
+            // Fn has no single-glyph symbol the way ⌘⇧⌥⌃ do, so it's written
+            // out as text too - same treatment as Hyper, including the
+            // trailing space (see TextReplacement.spelledOut for how both
+            // are kept from being exploded letter-by-letter in text-display
+            // mode).
+            if pressed.contains(.function) {
+                insert("fn ", into: field)
+            }
+
             for (flag, symbol) in Self.modifierSymbols where pressed.contains(flag) {
                 insert(symbol, into: field)
             }
@@ -853,41 +899,126 @@ private struct ShortcutTableTextField: NSViewRepresentable {
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
-            applyAutoReplaceIfNeeded(to: field)
+            if parent.capturesModifierKeys {
+                uppercaseJustTypedLetter(in: field)
+            }
             parent.text = field.stringValue
         }
 
-        /// Mirrors AutoReplaceTextEditor's substitution, but after the fact:
-        /// if the character immediately before the cursor is a non-uppercase
-        /// boundary (almost always the space the user just typed) and the
-        /// word right before that boundary is an exact ALL-CAPS match,
-        /// swap it for its symbol and restore the cursor position. Still
-        /// needed alongside the modifier-key capture above: it's the only
-        /// way to get symbols (like TAB/RETURN/arrows) that have no physical
-        /// "press it" equivalent here.
-        private func applyAutoReplaceIfNeeded(to field: NSTextField) {
+        /// Shortcuts are conventionally written with the key itself
+        /// capitalized regardless of whether Shift was actually held for it
+        /// (e.g. "⌘C", not "⌘c") - Shift only shows up as its own "⇧" symbol
+        /// when it's really part of the combo. Physically holding Shift to
+        /// get a capital letter here used to also insert a stray "⇧" (since
+        /// the modifier-key monitor above reacts to the Shift press itself,
+        /// same as any other modifier), which had to be manually deleted -
+        /// previously by arrow-key editing back to it, which the Shortcut
+        /// column can no longer do since arrows are now captured as their
+        /// own symbols (see doCommandBy below). Auto-capitalizing here
+        /// instead means a plain lowercase keystroke (no Shift needed) is
+        /// enough. Only touches the single character right before the
+        /// cursor - the one that was just typed in the normal case - so it
+        /// doesn't reach back into anything typed earlier, including a
+        /// "Hyper "/"fn " token (inserted via `insert(_:into:)` directly,
+        /// which never runs through this delegate method at all).
+        private func uppercaseJustTypedLetter(in field: NSTextField) {
             guard let editor = field.currentEditor() else { return }
-            let text = field.stringValue as NSString
             let cursor = editor.selectedRange.location
-            guard cursor > 0, cursor <= text.length else { return }
-
-            let boundaryChar = text.character(at: cursor - 1)
-            guard let scalar = Unicode.Scalar(boundaryChar), !CharacterSet.uppercaseLetters.contains(scalar),
-                  let match = TextReplacement.replacement(in: text, beforeLocation: cursor - 1)
-            else { return }
-
-            let boundaryString = text.substring(with: NSRange(location: cursor - 1, length: 1))
-            let replacementText = match.replacement + boundaryString
-            let fullRange = NSRange(location: match.range.location, length: cursor - match.range.location)
-
-            field.stringValue = text.replacingCharacters(in: fullRange, with: replacementText)
-            let newCursor = fullRange.location + (replacementText as NSString).length
-            editor.selectedRange = NSRange(location: newCursor, length: 0)
+            guard cursor > 0, cursor <= field.stringValue.utf16.count else { return }
+            let text = field.stringValue as NSString
+            let charRange = NSRange(location: cursor - 1, length: 1)
+            let ch = text.substring(with: charRange)
+            let upper = ch.uppercased()
+            guard upper != ch else { return }
+            field.stringValue = text.replacingCharacters(in: charRange, with: upper)
+            editor.selectedRange = NSRange(location: cursor, length: 0)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // Enter/arrows/Tab-as-symbol are Shortcut-column-only (see the
+            // type's doc comment) - the Action column has no keys worth
+            // capturing this way and still wants its own onTab handling
+            // (append-a-row on the last row) below, untouched.
+            if parent.capturesModifierKeys {
+                switch commandSelector {
+                case #selector(NSResponder.insertTab(_:)):
+                    return handleTab(isBacktab: false, control: control)
+                case #selector(NSResponder.insertBacktab(_:)):
+                    return handleTab(isBacktab: true, control: control)
+                case #selector(NSResponder.insertNewline(_:)):
+                    insertSymbolIfPossible("⏎")
+                    return true
+                case #selector(NSResponder.moveUp(_:)):
+                    insertSymbolIfPossible("↑")
+                    return true
+                case #selector(NSResponder.moveDown(_:)):
+                    insertSymbolIfPossible("↓")
+                    return true
+                case #selector(NSResponder.moveLeft(_:)):
+                    insertSymbolIfPossible("←")
+                    return true
+                case #selector(NSResponder.moveRight(_:)):
+                    insertSymbolIfPossible("→")
+                    return true
+                default:
+                    break
+                }
+            }
             guard commandSelector == #selector(NSResponder.insertTab(_:)), let onTab = parent.onTab else { return false }
             onTab()
+            return true
+        }
+
+        private func insertSymbolIfPossible(_ symbol: String) {
+            guard let field else { return }
+            insert(symbol, into: field)
+        }
+
+        /// First press: schedule the "⇥"/"⇤" symbol to land after
+        /// `tabDoubleTapWindow`, in case this is the only press. Second press
+        /// within that window: cancel the pending symbol and do what Tab
+        /// would normally do instead - move to the Action field in this row
+        /// (or append+focus a new row, on the last row's Action field -
+        /// though that path never actually reaches here, since it isn't a
+        /// `capturesModifierKeys` field) for forward Tab, or back to the
+        /// previous field for Shift+Tab.
+        private func handleTab(isBacktab: Bool, control: NSControl) -> Bool {
+            let now = Date()
+            if pendingTabWorkItem != nil, let last = lastTabPressAt, now.timeIntervalSince(last) < Self.tabDoubleTapWindow {
+                pendingTabWorkItem?.cancel()
+                pendingTabWorkItem = nil
+                lastTabPressAt = nil
+                if isBacktab {
+                    // `selectPreviousKeyView`/`selectNextKeyView` resolve
+                    // relative to the window's *current first responder* -
+                    // which at this point is the shared, transient field
+                    // editor, not `control` itself, and the field editor's
+                    // own nextKeyView is never set - so those calls silently
+                    // no-op. `selectKeyView(preceding/following:)` instead
+                    // walks the key-view loop from the explicit view we pass
+                    // in, which is the actual persistent NSTextField.
+                    control.window?.selectKeyView(preceding: control)
+                } else if let onTab = parent.onTab {
+                    onTab()
+                } else {
+                    control.window?.selectKeyView(following: control)
+                }
+                return true
+            }
+
+            lastTabPressAt = now
+            let workItem = DispatchWorkItem { [weak self] in
+                // Same "⇥" glyph regardless of direction - Shift+Tab already
+                // reads as reversed via the "⇧" the modifier monitor above
+                // inserts on its own, so a separate backtab glyph would be
+                // redundant (and there isn't a great one).
+                guard let self, let field = self.field else { return }
+                self.insert("⇥", into: field)
+                self.pendingTabWorkItem = nil
+                self.lastTabPressAt = nil
+            }
+            pendingTabWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.tabDoubleTapWindow, execute: workItem)
             return true
         }
     }
