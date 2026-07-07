@@ -174,9 +174,9 @@ struct TabBarView: View {
             }
         )
         .onHover { hovering in setHovered(tab, hovering: hovering) }
-        // High priority (over TabButton's own tap/double-tap gestures) but
-        // only actually engages once the drag exceeds 8pt - short clicks and
-        // double-clicks (select/rename) fall through untouched.
+        // High priority (over TabButton's own tap gesture) but only
+        // actually engages once the drag exceeds 8pt - a short click still
+        // falls through untouched to select the tab.
         .highPriorityGesture(
             DragGesture(minimumDistance: 8, coordinateSpace: .named(Self.dragSpace))
                 .onChanged { value in
@@ -424,11 +424,15 @@ private struct TabButton: View {
                 )
         )
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            draftName = tab.name
-            isRenaming = true
-        }
-        .onTapGesture(count: 1) {
+        // A plain single .onTapGesture (no count:2 sibling) - having both a
+        // count:1 and count:2 recognizer on the same view forces the system
+        // to wait out the double-click window before committing to the
+        // single-tap action, since it can't yet know a second tap won't
+        // follow. That made every tab switch feel like it took "a second"
+        // to register (real bug, fixed 2026-07-07). Double-click-to-rename
+        // is gone as a result, but the context menu's "Rename" below already
+        // covered the same action, so nothing is actually lost.
+        .onTapGesture {
             onSelect()
         }
         .contextMenu {
