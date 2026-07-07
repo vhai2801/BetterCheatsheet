@@ -30,6 +30,33 @@ struct ShortcutTableView: View {
     @FocusState private var focusedRowID: UUID?
 
     private let actionColumnMinWidth: CGFloat = 120
+    private let deleteButtonWidth: CGFloat = 20
+
+    /// Explicit width for the Action column, computed to fill whatever
+    /// space is actually left in the ScrollView's own viewport
+    /// (`scrollViewWidth`, see below) after every other fixed-width
+    /// neighbor - so the delete button ends up pinned near the window's
+    /// trailing edge (like the native scrollbar) instead of hugging
+    /// whatever narrow width Action's own content happened to need.
+    /// `.frame(width:)` (not `minWidth:`) is what makes this actually
+    /// stretch the column - Grid still reports the Grid's own natural
+    /// size to the outer `.fixedSize(horizontal: true, ...)`, but that
+    /// natural size now already includes this larger, explicitly-set
+    /// width, so nothing overrides it. Grid sizes a column to the widest
+    /// cell in it across every row, so leaving the *header's* "Action"
+    /// text unconstrained is fine - it just renders left-aligned within
+    /// whatever width the data rows establish.
+    private var actionColumnWidth: CGFloat {
+        let outerPadding: CGFloat = 24 // the Group's .padding(12), both sides
+        let gridSpacing: CGFloat = 12 // Grid's horizontalSpacing, once per gap between cells
+        let shortcutCellWidth = shortcutColumnWidth + 9 // box + its trailing handle/placeholder
+        var reserved = outerPadding + shortcutCellWidth + gridSpacing
+        if isEditable {
+            reserved += 16 + gridSpacing // grip column + the gap before Shortcut
+            reserved += gridSpacing + deleteButtonWidth // the gap before, and the delete button itself
+        }
+        return max(actionColumnMinWidth, scrollViewWidth - reserved)
+    }
 
     /// Live-drag overrides for the two column resize handles below - kept
     /// separate from the persisted settings values so a resize in progress
@@ -151,7 +178,7 @@ struct ShortcutTableView: View {
                             cell(
                                 for: $row.action,
                                 rowID: nil,
-                                minWidth: actionColumnMinWidth,
+                                width: actionColumnWidth,
                                 // Nothing to tab to after the last row's
                                 // Action field - append a new row instead of
                                 // just leaving the table.
@@ -171,6 +198,7 @@ struct ShortcutTableView: View {
                                 .buttonStyle(.plain)
                                 .focusable(false)
                                 .foregroundStyle(.secondary)
+                                .frame(width: deleteButtonWidth)
                             }
                         }
                         // Collapsed (not removed) while dragging so the grip
