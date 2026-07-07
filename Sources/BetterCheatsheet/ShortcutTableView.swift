@@ -288,7 +288,11 @@ struct ShortcutTableView: View {
     /// something occupying that space before its label.
     @ViewBuilder
     private func shortcutColumnCell<Content: View>(showsHandles: Bool, @ViewBuilder content: () -> Content) -> some View {
-        let box = HStack(spacing: 4) {
+        // 12, not 4, to match the Grid's own horizontalSpacing (see the
+        // Grid initializer above) - the trailing handle's gap to "Action"
+        // comes from that Grid spacing, so the leading handle's gap to
+        // "Shortcut" needs the same value to look symmetric.
+        let box = HStack(spacing: 12) {
             if showsHandles {
                 leadingInsetHandle
             } else {
