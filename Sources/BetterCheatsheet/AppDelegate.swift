@@ -87,22 +87,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func observeSettings() {
+        // Both effects only need to run on a *subsequent* change - the
+        // initial hotKey was already applied directly in
+        // applicationDidFinishLaunching (registerHotKey) and setUpStatusItem
+        // (updateStatusItemTitle), so one dropFirst()-gated subscription
+        // covers both instead of two separate ones each re-doing that check.
         settings.$hotKey
             .dropFirst()
             .sink { [weak self] hotKey in
                 self?.registerHotKey(hotKey)
+                self?.updateStatusItemTitle(for: hotKey)
             }
             .store(in: &settingsCancellables)
 
         settings.$theme
             .sink { [weak self] theme in
                 self?.applyTheme(theme)
-            }
-            .store(in: &settingsCancellables)
-
-        settings.$hotKey
-            .sink { [weak self] hotKey in
-                self?.updateStatusItemTitle(for: hotKey)
             }
             .store(in: &settingsCancellables)
     }
@@ -144,6 +144,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Notes are saved on a debounced/background write (see
+    /// AppState.scheduleSave) rather than synchronously on every keystroke,
+    /// so an edit made in the last fraction of a second before quitting
+    /// could otherwise be lost along with the debounce window - this makes
+    /// sure it lands before the process actually exits.
+    func applicationWillTerminate(_ notification: Notification) {
+        appState.flushPendingSave()
     }
 
     /// Without this, clicking the Dock icon (or re-launching) while the main

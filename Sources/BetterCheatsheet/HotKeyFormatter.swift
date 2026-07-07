@@ -103,10 +103,27 @@ enum HotKeyFormatter {
         UInt32(kVK_PageDown): "⇟",
     ]
 
+    /// Memoized per keyCode - the keyboard layout essentially never changes
+    /// mid-session, so there's no need to re-run
+    /// TISCopyCurrentKeyboardLayoutInputSource+UCKeyTranslate (not free) on
+    /// every call, including from SettingsView's body re-evaluating
+    /// HotKeyFormatter.string(for:) on every render. Main-thread only (same
+    /// as the rest of this UI-facing formatting code), so no locking.
+    private static var characterCache: [UInt32: String?] = [:]
+
+    private static func character(forKeyCode keyCode: UInt32) -> String? {
+        if let cached = characterCache[keyCode] {
+            return cached
+        }
+        let resolved = resolveCharacter(forKeyCode: keyCode)
+        characterCache[keyCode] = resolved
+        return resolved
+    }
+
     /// Resolves the base (unmodified) character for a virtual keyCode using the
     /// current keyboard layout, so letters/digits render correctly regardless
     /// of the user's input source.
-    private static func character(forKeyCode keyCode: UInt32) -> String? {
+    private static func resolveCharacter(forKeyCode keyCode: UInt32) -> String? {
         guard let inputSource = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else {
             return nil
         }

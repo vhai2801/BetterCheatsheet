@@ -15,8 +15,11 @@ struct TabItem: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     var name: String
     /// RTF-encoded rich text (font, bold, size). Source of truth for content
-    /// when the tab is a "Note tab" (see `editableInOverlay`).
-    var rtfData: Data = TabItem.encodeRTF(NSAttributedString(string: "", attributes: TabItem.defaultAttributes))
+    /// when the tab is a "Note tab" (see `editableInOverlay`). Plain empty
+    /// `Data`, not an RTF-round-tripped empty string - `decodeRTF` already
+    /// special-cases `data.isEmpty` to skip parsing entirely, so a brand-new
+    /// tab's content never needs a real RTF parse until it actually has text.
+    var rtfData: Data = Data()
     /// Doubles as "is this a freeform Note tab": true shows the rich-text
     /// editor (and is editable directly in the overlay, as before); false
     /// shows the templated Shortcut/Action table instead (read-only in the
@@ -69,7 +72,16 @@ struct TabItem: Codable, Identifiable, Equatable {
 
     /// Keyed by the raw RTF bytes, so repeated SwiftUI body re-evaluations
     /// with unchanged content (the common case) skip re-parsing entirely.
-    private static let decodeCache = NSCache<NSData, NSAttributedString>()
+    /// Every edit produces a new byte blob (and so a new entry) rather than
+    /// updating one in place, so `countLimit` bounds how much stale history
+    /// accumulates over a long editing session instead of growing unbounded
+    /// (NSCache only evicts under real memory pressure otherwise, which
+    /// macOS rarely signals for a small app like this).
+    private static let decodeCache: NSCache<NSData, NSAttributedString> = {
+        let cache = NSCache<NSData, NSAttributedString>()
+        cache.countLimit = 50
+        return cache
+    }()
 
     static func decodeRTF(_ data: Data) -> NSAttributedString {
         let key = data as NSData
@@ -97,7 +109,7 @@ struct TabItem: Codable, Identifiable, Equatable {
 
 final class AppState: ObservableObject {
     @Published var tabs: [TabItem] {
-        didSet { save() }
+        didSet { scheduleSave() }
     }
     @Published var selectedTabID: UUID? {
         didSet { saveSelection() }
@@ -113,6 +125,9 @@ final class AppState: ObservableObject {
 
     private let fileURL: URL
     private let selectionDefaultsKey = "BetterCheatsheet.selectedTabID"
+    private var saveWorkItem: DispatchWorkItem?
+    private let saveQueue = DispatchQueue(label: "com.blub.bettercheatsheet.save", qos: .utility)
+    private let saveDebounceInterval: TimeInterval = 0.4
 
     init() {
         let supportDir = FileManager.default
@@ -201,7 +216,35 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func save() {
+    /// Coalesces rapid edits - every keystroke in any tab's Note content or
+    /// Shortcut/Action table mutates `tabs` - into one encode+write ~0.4s
+    /// after the last change, instead of a full JSON-encode-and-atomic-write
+    /// of every tab's content (not just the one being edited) on every
+    /// single character typed. Captures a value-type snapshot synchronously
+    /// so the actual encode/write can happen on a background queue without
+    /// racing further edits to `tabs` (Swift arrays/structs are copy-on-write,
+    /// so `snapshot` is a true point-in-time copy, safe to touch off-thread).
+    private func scheduleSave() {
+        saveWorkItem?.cancel()
+        let snapshot = tabs
+        let workItem = DispatchWorkItem { [fileURL] in
+            Self.write(snapshot, to: fileURL)
+        }
+        saveWorkItem = workItem
+        saveQueue.asyncAfter(deadline: .now() + saveDebounceInterval, execute: workItem)
+    }
+
+    /// Writes immediately and cancels any pending debounced write - called
+    /// just before the app quits (see AppDelegate.applicationWillTerminate)
+    /// so an edit made in the last fraction of a second before termination
+    /// isn't lost along with the debounce window.
+    func flushPendingSave() {
+        saveWorkItem?.cancel()
+        saveWorkItem = nil
+        Self.write(tabs, to: fileURL)
+    }
+
+    private static func write(_ tabs: [TabItem], to fileURL: URL) {
         guard let data = try? JSONEncoder().encode(tabs) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }

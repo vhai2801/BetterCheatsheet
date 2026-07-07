@@ -69,7 +69,7 @@ struct TabBarView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
             }
-            .onPreferenceChange(TabFramePreferenceKey.self) { tabFrames = $0 }
+            .onPreferenceChange(UUIDFramePreferenceKey<TabFrameTag>.self) { tabFrames = $0 }
 
             // Fixed outside the scroll view, alongside Settings, so neither
             // ever gets pushed out of view by tab overflow.
@@ -168,7 +168,7 @@ struct TabBarView: View {
         .background(
             GeometryReader { geo in
                 Color.clear.preference(
-                    key: TabFramePreferenceKey.self,
+                    key: UUIDFramePreferenceKey<TabFrameTag>.self,
                     value: [tab.id: geo.frame(in: .named(Self.dragSpace))]
                 )
             }
@@ -376,13 +376,6 @@ private struct TabBarIconButtonStyle: ButtonStyle {
                     // from fully clear.
                     .fill(configuration.isPressed ? Color.primary.opacity(0.15) : Color.primary.opacity(0.02))
             )
-    }
-}
-
-private struct TabFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 

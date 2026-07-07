@@ -210,7 +210,7 @@ struct ShortcutTableView: View {
                         .background(
                             GeometryReader { geo in
                                 Color.clear.preference(
-                                    key: RowFramePreferenceKey.self,
+                                    key: UUIDFramePreferenceKey<RowFrameTag>.self,
                                     value: [row.id: geo.frame(in: .named(Self.rowDragSpace))]
                                 )
                             }
@@ -242,8 +242,8 @@ struct ShortcutTableView: View {
             }
         )
         .coordinateSpace(name: Self.rowDragSpace)
-        .onPreferenceChange(RowFramePreferenceKey.self) { rowFrames = $0 }
-        .onPreferenceChange(GripFramePreferenceKey.self) { gripFrames = $0 }
+        .onPreferenceChange(UUIDFramePreferenceKey<RowFrameTag>.self) { rowFrames = $0 }
+        .onPreferenceChange(UUIDFramePreferenceKey<GripFrameTag>.self) { gripFrames = $0 }
         .onPreferenceChange(HeaderFramePreferenceKey.self) { headerFrame = $0 }
         .onPreferenceChange(ScrollViewWidthPreferenceKey.self) { scrollViewWidth = $0 }
         .overlay(alignment: .topLeading) {
@@ -265,7 +265,7 @@ struct ShortcutTableView: View {
     /// fields' own click-to-place-cursor behavior, so only this handle
     /// carries the reorder gesture. minimumDistance keeps a plain click from
     /// starting a drag. Tracks its own frame separately from the row's (see
-    /// GripFramePreferenceKey) so the floating preview can stay anchored
+    /// UUIDFramePreferenceKey<GripFrameTag>) so the floating preview can stay anchored
     /// near the handle instead of centered across the whole (potentially
     /// very wide, thanks to the Action column) row.
     private func gripHandle(for rowID: UUID) -> some View {
@@ -277,7 +277,7 @@ struct ShortcutTableView: View {
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(
-                        key: GripFramePreferenceKey.self,
+                        key: UUIDFramePreferenceKey<GripFrameTag>.self,
                         value: [rowID: geo.frame(in: .named(Self.rowDragSpace))]
                     )
                 }
@@ -621,20 +621,6 @@ private struct CellWidthModifier: ViewModifier {
         } else {
             content.frame(minWidth: minWidth ?? 0, alignment: .leading)
         }
-    }
-}
-
-private struct RowFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
-    }
-}
-
-private struct GripFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 
