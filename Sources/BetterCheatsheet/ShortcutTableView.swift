@@ -53,11 +53,20 @@ struct ShortcutTableView: View {
     /// Row drag-to-reorder state - same gap-based design as TabBarView's tab
     /// reordering (track each row's frame, find which gap the drag's Y
     /// position falls in, commit on release), just tracking vertical
-    /// position instead of horizontal. The existing row separator line
-    /// doubles as the gap marker: normally a plain dim divider, it turns
-    /// into an accent-colored drop indicator while a drag targets that gap.
+    /// position instead of horizontal. The resting (non-dragging) row
+    /// separators are NOT drawn inside the Grid - see `separatorOverlay` -
+    /// only the accent-colored active drop indicator lives in-grid.
     @State private var rowFrames: [UUID: CGRect] = [:]
     @State private var gripFrames: [UUID: CGRect] = [:]
+    @State private var headerFrame: CGRect = .zero
+    /// The ScrollView's own width - tracked explicitly (background +
+    /// PreferenceKey, same pattern as headerFrame/rowFrames) rather than
+    /// read from a GeometryReader placed directly as the separator
+    /// overlay's own content, which was reporting a size matching the
+    /// Grid's own (now narrow, fixed-size) natural width instead of the
+    /// true ScrollView viewport - the actual cause of the separator lines
+    /// stopping partway across instead of reaching the trailing edge.
+    @State private var scrollViewWidth: CGFloat = 0
     @State private var draggingRowID: UUID?
     @State private var draggedRowOriginFrame: CGRect?
     @State private var draggedGripOriginFrame: CGRect?
@@ -68,17 +77,28 @@ struct ShortcutTableView: View {
 
     var body: some View {
         ScrollView {
-            if rows.isEmpty {
-                Text(isEditable ? "No shortcuts yet - add one below" : "No shortcuts yet")
-                    .foregroundStyle(.secondary)
-                    .padding(12)
-            } else {
-                Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 8) {
+            // Wrapping the whole content in this frame (rather than
+            // applying it to the ScrollView itself, from outside) makes the
+            // ScrollView's actual document view - what the underlying
+            // AppKit NSScrollView scrolls and positions its native scroller
+            // against - genuinely wide, not just SwiftUI's own layout
+            // frame for the ScrollView. Widening only the ScrollView from
+            // outside fixed the separator lines (a SwiftUI-level
+            // GeometryReader measurement) but left the real scrollbar still
+            // glued to the narrow Grid's trailing edge instead of the
+            // window's true edge.
+            Group {
+                if rows.isEmpty {
+                    Text(isEditable ? "No shortcuts yet - add one below" : "No shortcuts yet")
+                        .foregroundStyle(.secondary)
+                        .padding(12)
+                } else {
+                    Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow {
                         if isEditable {
                             Color.clear.frame(width: 16, height: 1)
                         }
-                        shortcutColumnCell(showsHandles: true) { Text("Shortcut") }
+                        shortcutColumnCell(showsHandles: isEditable) { Text("Shortcut") }
                         Text("Action")
                         if isEditable {
                             Color.clear.frame(width: 16, height: 1)
@@ -86,9 +106,14 @@ struct ShortcutTableView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                    Divider()
-                        .gridCellColumns(isEditable ? 4 : 2)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: HeaderFramePreferenceKey.self,
+                                value: geo.frame(in: .named(Self.rowDragSpace))
+                            )
+                        }
+                    )
 
                     gapView(at: 0)
 
@@ -156,12 +181,34 @@ struct ShortcutTableView: View {
                     }
                 }
                 .padding(12)
+                // Forces the Grid to report/use its own natural (sum of
+                // column widths) size horizontally, rather than stretching
+                // to whatever width the ScrollView happens to make
+                // available - otherwise a narrow Shortcut column setting
+                // was being visually overridden by the container's width.
+                .fixedSize(horizontal: true, vertical: false)
+                }
             }
+            // The Grid's own .fixedSize above keeps its columns narrow, but
+            // without this the ScrollView's document view also shrinks to
+            // match that narrow content instead of filling whatever width
+            // its parent actually gives it - which was the real reason
+            // both the separator lines and the native scrollbar stopped
+            // well short of the window's true edge instead of reaching it.
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: ScrollViewWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        )
         .coordinateSpace(name: Self.rowDragSpace)
         .onPreferenceChange(RowFramePreferenceKey.self) { rowFrames = $0 }
         .onPreferenceChange(GripFramePreferenceKey.self) { gripFrames = $0 }
+        .onPreferenceChange(HeaderFramePreferenceKey.self) { headerFrame = $0 }
+        .onPreferenceChange(ScrollViewWidthPreferenceKey.self) { scrollViewWidth = $0 }
         .overlay(alignment: .topLeading) {
+            separatorOverlay
             if let draggingRowID, let row = rows.first(where: { $0.id == draggingRowID }),
                let gripFrame = draggedGripOriginFrame {
                 floatingShortcutBadge(row, near: gripFrame)
@@ -213,17 +260,17 @@ struct ShortcutTableView: View {
 
     /// Wraps the Shortcut column's content (the header label, or a row's
     /// field/text) so header and every row share identical sizing - and,
-    /// only for the header (`showsHandles`), book-ends it with two visible
-    /// resize handles. Column resizing is available regardless of whether
-    /// row *content* is editable here (isEditable) - the overlay's rows stay
-    /// read-only, but its columns are still resizable, since both windows
-    /// share the same underlying settings. The leading handle sits *inside*
-    /// the same padded box as the label, immediately before it, so
-    /// increasing the inset pushes both of them right together - the handle
-    /// visually tracks alongside "Shortcut" instead of staying pinned at the
-    /// column's outer edge while only the text moves. The trailing handle
-    /// sits outside the box, right after it, so it moves with the box's own
-    /// width instead.
+    /// only for the header of an editable (main window) instance
+    /// (`showsHandles`, gated on `isEditable`), book-ends it with two
+    /// visible resize handles. The overlay's own column width/inset are
+    /// still fully live - it reads the same shared SettingsStore - it just
+    /// can't be dragged from there; resizing is main-window-only. The
+    /// leading handle sits *inside* the same padded box as the label,
+    /// immediately before it, so increasing the inset pushes both of them
+    /// right together - the handle visually tracks alongside "Shortcut"
+    /// instead of staying pinned at the column's outer edge while only the
+    /// text moves. The trailing handle sits outside the box, right after
+    /// it, so it moves with the box's own width instead.
     @ViewBuilder
     private func shortcutColumnCell<Content: View>(showsHandles: Bool, @ViewBuilder content: () -> Content) -> some View {
         let box = HStack(spacing: 4) {
@@ -283,18 +330,29 @@ struct ShortcutTableView: View {
         }
     }
 
-    /// A visible (if faint) vertical divider with a wider invisible hit
-    /// target around it, so it's actually discoverable instead of a purely
-    /// invisible strip you'd have to already know the location of. Uses the
-    /// drag's translation (relative to where the drag started) rather than
-    /// its absolute position, so it needs no coordinate-space/frame tracking
-    /// at all - just a plain, default-space DragGesture.
+    /// A visible (if faint) vertical divider with a wider hit target around
+    /// it, so it's actually discoverable instead of a purely invisible strip
+    /// you'd have to already know the location of. Uses the drag's
+    /// translation (relative to where the drag started) rather than its
+    /// absolute position, so it needs no coordinate-space/frame tracking at
+    /// all - just a plain, default-space DragGesture.
     private func columnResizeHandle(
         onDragStart: @escaping () -> Void,
         onDrag: @escaping (CGFloat) -> Void,
         onEnded: @escaping () -> Void
     ) -> some View {
         ZStack {
+            // The overlay panel has isMovableByWindowBackground = true, and
+            // AppKit decides "drag the window" vs. "hit the control" by the
+            // actual rendered alpha at the click point (same underlying
+            // issue as the overlay's "..." button, see TabBarView) - a
+            // fully transparent hit target outside the thin visible line
+            // was being treated as window background, so the whole panel
+            // dragged instead of resizing the column. This fill, covering
+            // the *entire* hit width (not just the visible line), keeps
+            // every pixel of it non-zero alpha.
+            Rectangle()
+                .fill(Color.primary.opacity(0.02))
             Rectangle()
                 .fill(Color.primary.opacity(0.15))
                 .frame(width: 1)
@@ -394,29 +452,64 @@ struct ShortcutTableView: View {
     }
 
     /// A gap at position `index` (before row `index`, or at the very end
-    /// when `index == rows.count`). Interior gaps (strictly between two
-    /// rows) always show the plain dim separator; the very top/bottom gaps
-    /// are invisible except while actively targeted, since there was never
-    /// a line before the first or after the last row. Any gap becomes a
+    /// when `index == rows.count`). The resting dim separator line itself
+    /// is NOT drawn here anymore (see `separatorOverlay`) - inside the
+    /// Grid, a full-width-seeking line forces Grid to inflate the column
+    /// track it spans to match (the same mechanism that was inflating the
+    /// Shortcut column - see the Grid's `.fixedSize` above), so a resting
+    /// separator that's actually supposed to span the *whole panel* can't
+    /// live in-grid at all. This still reserves the gap and renders the
     /// bold accent-colored drop indicator when it's the current drag target.
     private func gapView(at index: Int) -> some View {
         let isActive = draggingRowID != nil && insertionIndex == index
-        let isInteriorGap = index > 0 && index < rows.count
         return Group {
             if isActive {
                 Capsule()
                     .fill(Color.accentColor)
                     .frame(height: 3)
-            } else if isInteriorGap {
-                Rectangle()
-                    .fill(Color.primary.opacity(0.15))
-                    .frame(height: 1)
             } else {
                 Color.clear.frame(height: 1)
             }
         }
         .gridCellColumns(isEditable ? 4 : 2)
         .animation(.easeOut(duration: 0.12), value: insertionIndex)
+    }
+
+    /// Full-width (edge-to-edge of the panel, not just the table's columns)
+    /// resting separator lines, drawn *outside* the fixed-size Grid - one
+    /// just below the header, one between each pair of rows. Width comes
+    /// from `scrollViewWidth` (tracked via background+PreferenceKey on the
+    /// ScrollView itself), not a GeometryReader placed directly as this
+    /// overlay's own content - that reported the Grid's own narrow natural
+    /// width instead of the true viewport width, so lines stopped partway
+    /// across rather than reaching the trailing edge. Y positions come from
+    /// the same row/header frame tracking used for drag-to-reorder, so
+    /// these also stay correctly placed as the window is resized.
+    private var separatorOverlay: some View {
+        let orderedFrames = rows.compactMap { rowFrames[$0.id] }
+        let ys = separatorYPositions(orderedFrames: orderedFrames)
+        return ForEach(Array(ys.enumerated()), id: \.offset) { _, y in
+            Rectangle()
+                .fill(Color.primary.opacity(0.15))
+                .frame(width: scrollViewWidth, height: 1)
+                .position(x: scrollViewWidth / 2, y: y)
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Y positions (in the shared rowDragSpace) for each resting separator:
+    /// just below the header, and at the midpoint of the gap between every
+    /// pair of consecutive rows. Skipped entirely if frames haven't been
+    /// measured yet (headerFrame still `.zero`), rather than guessing.
+    private func separatorYPositions(orderedFrames: [CGRect]) -> [CGFloat] {
+        guard headerFrame != .zero else { return [] }
+        var ys: [CGFloat] = [headerFrame.maxY + 4]
+        if orderedFrames.count > 1 {
+            for i in 1..<orderedFrames.count {
+                ys.append((orderedFrames[i - 1].maxY + orderedFrames[i].minY) / 2)
+            }
+        }
+        return ys
     }
 
     /// Called both from `onAppear` (the common case: the view mounts after
@@ -493,6 +586,32 @@ private struct GripFramePreferenceKey: PreferenceKey {
     static var defaultValue: [UUID: CGRect] = [:]
     static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct HeaderFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    /// Unconditionally taking nextValue() would let every other row (which
+    /// never sets this key at all, contributing the .zero default as this
+    /// preference bubbles up through them) stomp the header's real,
+    /// already-measured value as soon as it's processed afterward - unlike
+    /// the dictionary-based frame keys, where merging in an empty `[:]`
+    /// default is harmless. Only overwrite with an actual measurement.
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero {
+            value = next
+        }
+    }
+}
+
+private struct ScrollViewWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next != 0 {
+            value = next
+        }
     }
 }
 
