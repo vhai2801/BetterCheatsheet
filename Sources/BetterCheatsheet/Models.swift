@@ -140,7 +140,7 @@ final class AppState: ObservableObject {
            let decoded = try? JSONDecoder().decode([TabItem].self, from: data) {
             tabs = decoded
         } else {
-            tabs = []
+            tabs = Self.starterTabs()
         }
 
         if let savedIDString = UserDefaults.standard.string(forKey: selectionDefaultsKey),
@@ -251,5 +251,65 @@ final class AppState: ObservableObject {
 
     private func saveSelection() {
         UserDefaults.standard.set(selectedTabID?.uuidString, forKey: selectionDefaultsKey)
+    }
+
+    /// Starter content for a fresh install (no `tabs.json` yet, or one that
+    /// fails to decode) - two pre-filled cheatsheets covering common macOS
+    /// and text-editing shortcuts, so a new user sees something useful right
+    /// away instead of a blank slate. Ordinary tabs once created - freely
+    /// renamable/editable/deletable, nothing about them is special beyond
+    /// this initial seeding.
+    private static func starterTabs() -> [TabItem] {
+        func row(_ shortcut: String, _ action: String) -> ShortcutRow {
+            ShortcutRow(shortcut: shortcut, action: action)
+        }
+
+        var general = TabItem(name: "General")
+        general.shortcutRows = [
+            row("⌘W", "Close Window"),
+            row("⌥⌘W", "Close All Windows"),
+            row("⌘Q", "Quit App"),
+            row("⌥⌘⎋", "Force Quit Applications"),
+            row("⌘H", "Hide App"),
+            row("⌥⌘H", "Hide Others"),
+            row("⌘M", "Minimize Window"),
+            row("⌥⌘M", "Minimize All Windows"),
+            row("⌘,", "App Preferences"),
+            row("⌘⇥", "Switch Apps"),
+            row("⇧⌘⇥", "Switch Apps (Reverse)"),
+            row("⌘`", "Cycle Windows in App"),
+            row("⌃⌘␣", "Emoji & Symbols Viewer"),
+            row("⌘E", "Eject"),
+            row("⌘⌫", "Move to Trash"),
+            row("⇧⌘⌫", "Empty Trash"),
+        ]
+
+        var textsBased = TabItem(name: "Texts based")
+        textsBased.shortcutRows = [
+            row("⌘C", "Copy"),
+            row("⌘X", "Cut"),
+            row("⌘V", "Paste"),
+            row("⇧⌘V", "Paste and Match Style"),
+            row("⌘Z", "Undo"),
+            row("⇧⌘Z", "Redo"),
+            row("⌃␣", "Change Input language"),
+            row("⌘A", "Select All"),
+            row("⌘F", "Find"),
+            row("⌘G", "Find Next"),
+            row("⇧⌘G", "Find Previous"),
+            row("⌘B", "Bold"),
+            row("⌘I", "Italic"),
+            row("⌘U", "Underline"),
+            row("⌘←", "Move to Start of Line"),
+            row("⌘→", "Move to End of Line"),
+            row("⌥←", "Move Word Left"),
+            row("⌥→", "Move Word Right"),
+            row("⌥⌫", "Delete Word Backward"),
+            row("⌘⌫", "Delete to Start of Line"),
+            row("⇧⏎", "Insert Line Break"),
+            row("⌥␣", "Non-breaking Space"),
+        ]
+
+        return [general, textsBased]
     }
 }

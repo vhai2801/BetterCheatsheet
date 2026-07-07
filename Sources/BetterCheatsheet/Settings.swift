@@ -87,7 +87,7 @@ final class SettingsStore: ObservableObject {
     }
 
     static let defaultShortcutColumnWidth: CGFloat = 90
-    static let defaultShortcutTableFontSize: CGFloat = 13
+    static let defaultShortcutTableFontSize: CGFloat = 16
 
     init() {
         let supportDir = FileManager.default
