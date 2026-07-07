@@ -66,6 +66,12 @@ final class SettingsStore: ObservableObject {
     @Published var shortcutColumnLeadingInset: CGFloat {
         didSet { save() }
     }
+    /// Shared the same way as the column width/inset above - one value for
+    /// both the main window and the overlay, surviving tab switches and
+    /// relaunches.
+    @Published var shortcutTableFontSize: CGFloat {
+        didSet { save() }
+    }
 
     private let fileURL: URL
 
@@ -77,9 +83,11 @@ final class SettingsStore: ObservableObject {
         // silently reset theme/hotKey to defaults too).
         var shortcutColumnWidth: CGFloat?
         var shortcutColumnLeadingInset: CGFloat?
+        var shortcutTableFontSize: CGFloat?
     }
 
     static let defaultShortcutColumnWidth: CGFloat = 90
+    static let defaultShortcutTableFontSize: CGFloat = 13
 
     init() {
         let supportDir = FileManager.default
@@ -94,11 +102,13 @@ final class SettingsStore: ObservableObject {
             hotKey = decoded.hotKey
             shortcutColumnWidth = decoded.shortcutColumnWidth ?? Self.defaultShortcutColumnWidth
             shortcutColumnLeadingInset = decoded.shortcutColumnLeadingInset ?? 0
+            shortcutTableFontSize = decoded.shortcutTableFontSize ?? Self.defaultShortcutTableFontSize
         } else {
             theme = .light
             hotKey = HotKeyConfig(keyCode: DefaultHotKey.keyCode, modifiers: DefaultHotKey.modifiers)
             shortcutColumnWidth = Self.defaultShortcutColumnWidth
             shortcutColumnLeadingInset = 0
+            shortcutTableFontSize = Self.defaultShortcutTableFontSize
         }
     }
 
@@ -107,7 +117,8 @@ final class SettingsStore: ObservableObject {
             theme: theme,
             hotKey: hotKey,
             shortcutColumnWidth: shortcutColumnWidth,
-            shortcutColumnLeadingInset: shortcutColumnLeadingInset
+            shortcutColumnLeadingInset: shortcutColumnLeadingInset,
+            shortcutTableFontSize: shortcutTableFontSize
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         try? data.write(to: fileURL, options: .atomic)

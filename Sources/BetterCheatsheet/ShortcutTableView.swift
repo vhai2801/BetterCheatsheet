@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 /// Two-column (Shortcut, Action) table used by tabs that aren't flagged as a
@@ -103,7 +104,19 @@ struct ShortcutTableView: View {
     private static let rowDragSpace = "BetterCheatsheet.rowDrag"
 
     var body: some View {
-        ScrollView {
+        // Both axes, not just .vertical: the Shortcut column has a
+        // user-configurable fixed width (shortcutColumnWidth) and the
+        // Action column has a floor (actionColumnMinWidth) - their combined
+        // minimum can exceed a narrow window/overlay's actual width. A
+        // vertical-only ScrollView still constrains its content to its own
+        // width in the cross axis regardless of the Grid's .fixedSize, so
+        // that case was silently collapsing/clipping the Shortcut column
+        // instead of just scrolling - real bug, fixed 2026-07-07 (reported
+        // as "text doesn't move properly / cuts off text when resizing the
+        // overlay, even though there's clearly enough space" - there wasn't
+        // enough space for the *configured minimums*, and the fix is to let
+        // it scroll horizontally in that case rather than collapse).
+        ScrollView([.horizontal, .vertical]) {
             // Wrapping the whole content in this frame (rather than
             // applying it to the ScrollView itself, from outside) makes the
             // ScrollView's actual document view - what the underlying
@@ -113,7 +126,12 @@ struct ShortcutTableView: View {
             // outside fixed the separator lines (a SwiftUI-level
             // GeometryReader measurement) but left the real scrollbar still
             // glued to the narrow Grid's trailing edge instead of the
-            // window's true edge.
+            // window's true edge. This also still applies with horizontal
+            // scrolling added: `.frame(maxWidth: .infinity)` only *grows*
+            // into extra offered space, it never shrinks below the Grid's
+            // own .fixedSize width - so content still fills a wide viewport,
+            // and still scrolls horizontally rather than clipping in a
+            // narrow one.
             Group {
                 if rows.isEmpty {
                     Text(isEditable ? "No shortcuts yet - add one below" : "No shortcuts yet")
@@ -166,10 +184,11 @@ struct ShortcutTableView: View {
 
                             shortcutColumnCell(showsHandles: false) {
                                 if isEditable {
-                                    ShortcutTableTextField(text: $row.shortcut, capturesModifierKeys: true)
+                                    ShortcutTableTextField(text: $row.shortcut, fontSize: settings.shortcutTableFontSize, capturesModifierKeys: true)
                                         .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: row.id))
                                 } else {
                                     Text(row.shortcut)
+                                        .font(.system(size: settings.shortcutTableFontSize))
                                         .fixedSize(horizontal: false, vertical: true)
                                         .textSelection(.enabled)
                                 }
@@ -595,10 +614,11 @@ struct ShortcutTableView: View {
     ) -> some View {
         Group {
             if isEditable {
-                ShortcutTableTextField(text: text, onTab: onTab, capturesModifierKeys: capturesModifierKeys)
+                ShortcutTableTextField(text: text, fontSize: settings.shortcutTableFontSize, onTab: onTab, capturesModifierKeys: capturesModifierKeys)
                     .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: rowID))
             } else {
                 Text(text.wrappedValue)
+                    .font(.system(size: settings.shortcutTableFontSize))
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -676,8 +696,13 @@ private struct FocusIfNeeded: ViewModifier {
 /// - (Shortcut column only, `capturesModifierKeys`) inserting a modifier's
 ///   own symbol the instant it's physically pressed, so "⇧⌘K" can be typed
 ///   by literally holding Shift+Cmd+K instead of spelling out "SHIFT" etc.
+///   The physical Space bar gets the same treatment ("␣" instead of a
+///   literal space) - deliberately tied to this same flag, so the Action
+///   column (which never sets `capturesModifierKeys`) still types normal
+///   spaces
 private struct ShortcutTableTextField: NSViewRepresentable {
     @Binding var text: String
+    var fontSize: CGFloat = 13
     var onTab: (() -> Void)?
     var capturesModifierKeys: Bool = false
 
@@ -686,6 +711,7 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
+        field.font = NSFont.systemFont(ofSize: fontSize)
         field.delegate = context.coordinator
         if capturesModifierKeys {
             context.coordinator.startObservingModifierKeys(for: field)
@@ -696,6 +722,9 @@ private struct ShortcutTableTextField: NSViewRepresentable {
     func updateNSView(_ nsView: NSTextField, context: Context) {
         if nsView.stringValue != text {
             nsView.stringValue = text
+        }
+        if nsView.font?.pointSize != fontSize {
+            nsView.font = NSFont.systemFont(ofSize: fontSize)
         }
         context.coordinator.parent = self
     }
@@ -708,6 +737,7 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         var parent: ShortcutTableTextField
         private weak var field: NSTextField?
         private var flagsMonitor: Any?
+        private var keyDownMonitor: Any?
         private var heldModifierFlags: NSEvent.ModifierFlags = []
 
         private static let modifierSymbols: [(flag: NSEvent.ModifierFlags, symbol: String)] = [
@@ -722,6 +752,9 @@ private struct ShortcutTableTextField: NSViewRepresentable {
             if let flagsMonitor {
                 NSEvent.removeMonitor(flagsMonitor)
             }
+            if let keyDownMonitor {
+                NSEvent.removeMonitor(keyDownMonitor)
+            }
         }
 
         func startObservingModifierKeys(for field: NSTextField) {
@@ -729,6 +762,18 @@ private struct ShortcutTableTextField: NSViewRepresentable {
             flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
                 self?.handleFlagsChanged(event)
                 return event
+            }
+            // Space isn't a modifier, so it never reaches handleFlagsChanged
+            // above - without this, physically pressing it here just typed a
+            // literal space instead of the expected "␣" symbol. Only this
+            // (Shortcut column, capturesModifierKeys) field's monitor should
+            // ever swallow the event (returning nil), which handleSpaceIfNeeded
+            // only does once it's confirmed via currentEditor() that this
+            // exact field is the one being edited - every other row's own
+            // monitor for this same event still passes it through untouched.
+            keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.handleSpaceIfNeeded(event) else { return event }
+                return nil
             }
         }
 
@@ -747,6 +792,16 @@ private struct ShortcutTableTextField: NSViewRepresentable {
             for (flag, symbol) in Self.modifierSymbols where pressed.contains(flag) {
                 insert(symbol, into: field)
             }
+        }
+
+        /// Mirrors handleFlagsChanged, but for the one printable key that
+        /// gets its own symbol: the physical Space bar. Returns whether it
+        /// handled (and so should swallow) the event, so the caller doesn't
+        /// also let the field insert a literal space on top of "␣".
+        private func handleSpaceIfNeeded(_ event: NSEvent) -> Bool {
+            guard let field, field.currentEditor() != nil, event.keyCode == UInt16(kVK_Space) else { return false }
+            insert("␣", into: field)
+            return true
         }
 
         private func insert(_ symbol: String, into field: NSTextField) {

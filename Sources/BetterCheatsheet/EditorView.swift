@@ -47,6 +47,20 @@ struct EditorView: View {
                                 Image(systemName: "plus")
                             }
                             .help("Add row")
+
+                            Button {
+                                settings.shortcutTableFontSize = max(settings.shortcutTableFontSize - 1, 9)
+                            } label: {
+                                Image(systemName: "textformat.size.smaller")
+                            }
+                            .help("Decrease shortcut/action text size")
+
+                            Button {
+                                settings.shortcutTableFontSize = min(settings.shortcutTableFontSize + 1, 28)
+                            } label: {
+                                Image(systemName: "textformat.size.larger")
+                            }
+                            .help("Increase shortcut/action text size")
                         }
 
                         Spacer()
