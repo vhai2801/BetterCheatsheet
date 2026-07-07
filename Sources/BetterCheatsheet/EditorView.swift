@@ -87,6 +87,7 @@ struct EditorView: View {
                             rows: $appState.tabs[index].shortcutRows,
                             isEditable: true,
                             settings: settings,
+                            isTrackpadTemplate: appState.tabs[index].isTrackpadTemplate,
                             focusFirstRowOnAppear: appState.pendingContentFocusTabID == appState.tabs[index].id,
                             onFocusRequestHandled: { appState.pendingContentFocusTabID = nil }
                         )

@@ -17,6 +17,11 @@ struct ShortcutTableView: View {
     /// the main window and overlay - two separate ShortcutTableView
     /// instances - should show the same column layout, not independent ones.
     @ObservedObject var settings: SettingsStore
+    /// Mirrors `TabItem.isTrackpadTemplate` - swaps the Shortcut column's
+    /// header label to "Trackpad Shortcut" and, when editable, its capture
+    /// behavior from physical modifier-key capture to the ALL-CAPS keyword
+    /// auto-replace instead (see `ShortcutCaptureMode`/`TextReplacement.map`).
+    var isTrackpadTemplate: Bool = false
     /// True right after this tab was created via the tab bar's "+" flow -
     /// jumps straight into the first row's Shortcut field on appearing, so
     /// naming the tab and filling in its first entry is one uninterrupted
@@ -148,7 +153,9 @@ struct ShortcutTableView: View {
                         if isEditable {
                             Color.clear.frame(width: 16, height: 1)
                         }
-                        shortcutColumnCell(showsHandles: isEditable) { Text("Shortcut") }
+                        shortcutColumnCell(showsHandles: isEditable) {
+                            Text(isTrackpadTemplate ? "Trackpad Shortcut" : "Shortcut")
+                        }
                         // The GeometryReader/preference lives on this one
                         // cell specifically, not chained after the GridRow
                         // itself - a modifier chained onto a GridRow is
@@ -189,8 +196,12 @@ struct ShortcutTableView: View {
 
                             shortcutColumnCell(showsHandles: false) {
                                 if isEditable {
-                                    ShortcutTableTextField(text: $row.shortcut, fontSize: settings.shortcutTableFontSize, capturesModifierKeys: true)
-                                        .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: row.id))
+                                    ShortcutTableTextField(
+                                        text: $row.shortcut,
+                                        fontSize: settings.shortcutTableFontSize,
+                                        captureMode: isTrackpadTemplate ? .trackpad : .keyboard
+                                    )
+                                    .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: row.id))
                                 } else {
                                     Text(settings.shortcutsDisplayAsText ? TextReplacement.spelledOut(row.shortcut) : row.shortcut)
                                         .font(.system(size: settings.shortcutTableFontSize))
@@ -645,12 +656,11 @@ struct ShortcutTableView: View {
         minWidth: CGFloat? = nil,
         width: CGFloat? = nil,
         leadingInset: CGFloat = 0,
-        onTab: (() -> Void)? = nil,
-        capturesModifierKeys: Bool = false
+        onTab: (() -> Void)? = nil
     ) -> some View {
         Group {
             if isEditable {
-                ShortcutTableTextField(text: text, fontSize: settings.shortcutTableFontSize, onTab: onTab, capturesModifierKeys: capturesModifierKeys)
+                ShortcutTableTextField(text: text, fontSize: settings.shortcutTableFontSize, onTab: onTab)
                     .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: rowID))
             } else {
                 Text(text.wrappedValue)
@@ -721,25 +731,38 @@ private struct FocusIfNeeded: ViewModifier {
     }
 }
 
+/// The Shortcut column's three possible behaviors for a `ShortcutTableTextField`:
+/// `.none` is a completely plain field (the Action column, and any other
+/// non-Shortcut cell); `.keyboard` is the original physical modifier/key
+/// capture (Keyboard template); `.trackpad` is the older ALL-CAPS-keyword
+/// auto-replace (Trackpad template) - revived for that template after being
+/// removed for `.keyboard` in favor of physical capture, since a trackpad
+/// gesture is described in longer free text with no single physical key to
+/// capture (see TextReplacement.map).
+private enum ShortcutCaptureMode {
+    case none, keyboard, trackpad
+}
+
 /// A plain single-line NSTextField used for every table cell. SwiftUI's
 /// TextField has no way on macOS 13 to intercept individual keystrokes or
 /// Tab, so this wraps NSTextField directly to get both:
 /// - an optional Tab interception (see `onTab`), used only on the last row's
 ///   Action field to append a new row instead of tabbing off into nothing
-/// - (Shortcut column only, `capturesModifierKeys`) inserting a modifier's
+/// - (Shortcut column only, `captureMode == .keyboard`) inserting a modifier's
 ///   own symbol the instant it's physically pressed, so "⇧⌘K" can be typed
 ///   by literally holding Shift+Cmd+K instead of spelling out "SHIFT" etc.
 ///   The physical Space, Return, and arrow keys get the same treatment
 ///   ("␣"/"⏎"/"↑↓←→" instead of their normal effect); Tab does too, but
 ///   distinguishes a single press (inserts "⇥") from two presses in quick
 ///   succession (real Tab navigation) - see `handleTab`. All of this is
-///   deliberately tied to `capturesModifierKeys`, so the Action column
-///   (which never sets it) keeps completely normal text-field behavior
+///   deliberately tied to `captureMode == .keyboard`, so the Action column
+///   and the Trackpad template's Shortcut column (`.none`/`.trackpad`) keep
+///   completely normal text-field behavior beyond their own capture, if any
 private struct ShortcutTableTextField: NSViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat = 13
     var onTab: (() -> Void)?
-    var capturesModifierKeys: Bool = false
+    var captureMode: ShortcutCaptureMode = .none
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
@@ -748,7 +771,7 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         field.focusRingType = .none
         field.font = NSFont.systemFont(ofSize: fontSize)
         field.delegate = context.coordinator
-        if capturesModifierKeys {
+        if captureMode == .keyboard {
             context.coordinator.startObservingModifierKeys(for: field)
         }
         return field
@@ -899,10 +922,43 @@ private struct ShortcutTableTextField: NSViewRepresentable {
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
-            if parent.capturesModifierKeys {
+            switch parent.captureMode {
+            case .keyboard:
                 uppercaseJustTypedLetter(in: field)
+            case .trackpad:
+                applyAutoReplaceIfNeeded(to: field)
+            case .none:
+                break
             }
             parent.text = field.stringValue
+        }
+
+        /// Trackpad template only. Mirrors AutoReplaceTextEditor's old
+        /// substitution (removed for the Keyboard template's Shortcut
+        /// column, see TextReplacement.swift/Decisions log, but revived here
+        /// since the Trackpad template has no physical key to capture): if
+        /// the character immediately before the cursor is a non-uppercase
+        /// boundary (almost always the space just typed) and the word right
+        /// before that boundary is an exact ALL-CAPS match, swap it for its
+        /// symbol and restore the cursor position.
+        private func applyAutoReplaceIfNeeded(to field: NSTextField) {
+            guard let editor = field.currentEditor() else { return }
+            let text = field.stringValue as NSString
+            let cursor = editor.selectedRange.location
+            guard cursor > 0, cursor <= text.length else { return }
+
+            let boundaryChar = text.character(at: cursor - 1)
+            guard let scalar = Unicode.Scalar(boundaryChar), !CharacterSet.uppercaseLetters.contains(scalar),
+                  let match = TextReplacement.replacement(in: text, beforeLocation: cursor - 1)
+            else { return }
+
+            let boundaryString = text.substring(with: NSRange(location: cursor - 1, length: 1))
+            let replacementText = match.replacement + boundaryString
+            let fullRange = NSRange(location: match.range.location, length: cursor - match.range.location)
+
+            field.stringValue = text.replacingCharacters(in: fullRange, with: replacementText)
+            let newCursor = fullRange.location + (replacementText as NSString).length
+            editor.selectedRange = NSRange(location: newCursor, length: 0)
         }
 
         /// Shortcuts are conventionally written with the key itself
@@ -935,11 +991,12 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            // Enter/arrows/Tab-as-symbol are Shortcut-column-only (see the
-            // type's doc comment) - the Action column has no keys worth
-            // capturing this way and still wants its own onTab handling
+            // Enter/arrows/Tab-as-symbol are Keyboard-template-Shortcut-
+            // column-only (see the type's doc comment) - the Action column
+            // and the Trackpad template's Shortcut column have no keys worth
+            // capturing this way and still want normal Tab/onTab handling
             // (append-a-row on the last row) below, untouched.
-            if parent.capturesModifierKeys {
+            if parent.captureMode == .keyboard {
                 switch commandSelector {
                 case #selector(NSResponder.insertTab(_:)):
                     return handleTab(isBacktab: false, control: control)

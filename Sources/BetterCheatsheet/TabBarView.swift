@@ -27,6 +27,11 @@ struct TabBarView: View {
     @State private var hoverWorkItem: DispatchWorkItem?
     @State private var isAddingTab = false
     @State private var newTabName = ""
+    /// Which table template the pending "+" flow will create - set when the
+    /// user picks an option from the popover, read once in `commitNewTab()`.
+    @State private var pendingIsTrackpad = false
+    /// True while the "+" button's template-choice popover is showing.
+    @State private var isChoosingTemplate = false
     @FocusState private var isNewTabFieldFocused: Bool
 
     /// Each tab's on-screen frame, in the `dragSpace` coordinate space -
@@ -324,33 +329,113 @@ struct TabBarView: View {
                     if !focused { commitNewTab() }
                 }
         } else {
+            // The "+" now has two table templates to choose between (see
+            // TabItem.isTrackpadTemplate) before it drops into the naming
+            // text field below. A `.popover` (real NSPopover) presents the
+            // two choices, rather than a SwiftUI `Menu` - kept the existing
+            // TabBarIconButtonStyle look/pressed-feedback on the "+" itself
+            // this way, and a popover with plain Buttons inside is simple
+            // to reason about.
             Button {
-                newTabName = ""
-                isAddingTab = true
+                isChoosingTemplate = true
             } label: {
                 Image(systemName: "plus")
             }
             .buttonStyle(TabBarIconButtonStyle())
             .focusable(false)
             .help("Add tab")
+            .popover(isPresented: $isChoosingTemplate, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    templateChoiceRow(title: "Keyboard Shortcut", systemImage: "keyboard", isTrackpad: false)
+                    templateChoiceRow(title: "Trackpad Shortcut", systemImage: "hand.draw", isTrackpad: true)
+                }
+                // 10, not the row's own tighter 6, so the highlight (which
+                // nearly spans this padding's full inset) reads as
+                // concentric with the popover bubble's own large corner
+                // radius, rather than a small-radius rectangle sitting
+                // awkwardly close to a much rounder outer edge.
+                .padding(10)
+                .frame(width: 200)
+            }
         }
     }
 
+    /// A row in the "+" popover. Deliberately not a `Button` - AppKit gives a
+    /// SwiftUI `Button` inside a popover its own focus ring (rendered in the
+    /// app's accent color, which happens to be a yellow/gold here), and
+    /// `.buttonStyle(.plain)` alone doesn't suppress it. A plain view with
+    /// `.onTapGesture` (the same approach `TabButton` already uses for tab
+    /// selection) has no button identity for AppKit to draw a focus ring
+    /// around at all, and lets hover state show a background highlight
+    /// (`isHovered`) matching this app's existing pill/row styling instead
+    /// of relying on default system list-row appearance.
+    private func templateChoiceRow(title: String, systemImage: String, isTrackpad: Bool) -> some View {
+        TemplateChoiceRow(title: title, systemImage: systemImage) {
+            isChoosingTemplate = false
+            beginAddingTab(isTrackpad: isTrackpad)
+        }
+    }
+
+    private func beginAddingTab(isTrackpad: Bool) {
+        pendingIsTrackpad = isTrackpad
+        newTabName = ""
+        isAddingTab = true
+    }
+
     /// Enter commits the name, creates the (table-format, one-empty-row)
-    /// tab, and hands off focus to that row's Shortcut field - see
-    /// `pendingContentFocusTabID` and ShortcutTableView's
-    /// `focusFirstRowOnAppear` - so naming a tab and starting to fill it in
-    /// is one continuous flow with no extra click.
+    /// tab in whichever template was picked from the "+" dropdown, and hands
+    /// off focus to that row's Shortcut field - see `pendingContentFocusTabID`
+    /// and ShortcutTableView's `focusFirstRowOnAppear` - so naming a tab and
+    /// starting to fill it in is one continuous flow with no extra click.
     private func commitNewTab() {
         let trimmed = newTabName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             withAnimation(.easeOut(duration: 0.25)) {
-                appState.addTab(named: trimmed)
+                appState.addTab(named: trimmed, isTrackpad: pendingIsTrackpad)
             }
             appState.pendingContentFocusTabID = appState.selectedTabID
         }
         newTabName = ""
         isAddingTab = false
+    }
+}
+
+/// A single row in the "+" popover (see `templateChoiceRow`) - an icon, a
+/// label, and a hover-highlighted background, with no `Button` involved so
+/// there's no AppKit focus ring to suppress.
+private struct TemplateChoiceRow: View {
+    let title: String
+    let systemImage: String
+    var action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+            Text(title)
+        }
+        // Centered as a group within the full-width row, rather than
+        // left-aligned with a trailing Spacer - the hover highlight below
+        // spans the whole row width, so left-aligned content read as
+        // stranded off to one side of it instead of sitting in the middle.
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(
+            // 8 (not the tab bar's usual 6) - this row sits close to the
+            // popover bubble's own much-larger corner radius (its 10pt
+            // outer padding is the only gap between them), so a small,
+            // tight radius here looked visually mismatched against that
+            // big rounded bubble edge. A slightly bigger radius reads as
+            // concentric with it instead.
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isHovered ? Color.primary.opacity(0.08) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture(perform: action)
     }
 }
 

@@ -4,13 +4,13 @@ A native macOS app for keeping notes on your custom keyboard shortcuts, with a g
 
 ## Features
 
-- **Two tab types**: a templated two-column Shortcut/Action table (via the "+" button) for structured shortcut lists, or a freeform rich-text Note tab (via the note-icon button) — a tab's type is fixed at creation and can't be flipped afterward
+- **Three tab types**: via the "+" button, a templated two-column table for either **Keyboard Shortcuts** (physical modifier-key capture, see below) or **Trackpad Shortcuts** (an ALL-CAPS-keyword auto-replace instead, e.g. typing `CMD ` inserts "⌘ ", since trackpad gestures are described in longer free text) — or, via the note-icon button, a freeform rich-text Note tab. A tab's type is fixed at creation and can't be flipped afterward
 - **Unlimited named tabs** for organizing shortcuts into groups, with drag-to-reorder for both tabs and, within a table tab, individual rows
 - **Global hotkey** (default ⇧⌘K, fully re-recordable) toggles a floating overlay showing your notes over whatever app you're in — an ellipsis button in the overlay jumps straight back to the main editor
 - **Per-tab overlay editing** — mark a Note tab "editable in overlay" to jot things down without opening the main window (table tabs are always read-only in the overlay)
 - **Rich text** for Note tabs: bold, font size, and full font family/style via the native Font Panel
-- **Live shortcut capture** in the Shortcut column: hold a modifier (⌘ ⇧ ⌥ ⌃) and it's inserted as its symbol the instant it's pressed, along with Space (␣), Return (⏎), and the arrow keys (↑ ↓ ← →); tapping Tab once inserts "⇥", tapping it twice quickly moves to the next field instead. Pressing all four modifiers at once (e.g. a Hyper key remapped from Caps Lock) inserts "Hyper " instead of stacking all four symbols; Fn inserts "fn "
-- Letters typed into the Shortcut column are auto-capitalized (e.g. typing `c` after `⌘` gives "⌘C") - no need to hold Shift just to get the key capitalized
+- **Live shortcut capture** (Keyboard template only) in the Shortcut column: hold a modifier (⌘ ⇧ ⌥ ⌃) and it's inserted as its symbol the instant it's pressed, along with Space (␣), Return (⏎), and the arrow keys (↑ ↓ ← →); tapping Tab once inserts "⇥", tapping it twice quickly moves to the next field instead. Pressing all four modifiers at once (e.g. a Hyper key remapped from Caps Lock) inserts "Hyper " instead of stacking all four symbols; Fn inserts "fn "
+- Letters typed into the Keyboard template's Shortcut column are auto-capitalized (e.g. typing `c` after `⌘` gives "⌘C") - no need to hold Shift just to get the key capitalized
 - If a remapped Caps Lock (e.g. to a Hyper key) still also engages the OS's native Caps Lock, the Shortcut column forces it back off automatically while you're typing there
 - **Symbol or spelled-out display** — a Settings toggle shows shortcuts either as symbols (⌘⇧K) or spelled out (Cmd Shift K)
 - Adjustable Shortcut column width and a shared table font size

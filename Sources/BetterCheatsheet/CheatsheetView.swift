@@ -18,7 +18,7 @@ struct CheatsheetView: View {
                 if tab.editableInOverlay {
                     AutoReplaceTextEditor(attributedText: $appState.tabs[index].attributedContent)
                 } else {
-                    ShortcutTableView(rows: .constant(tab.shortcutRows), isEditable: false, settings: settings)
+                    ShortcutTableView(rows: .constant(tab.shortcutRows), isEditable: false, settings: settings, isTrackpadTemplate: tab.isTrackpadTemplate)
                 }
             } else {
                 Spacer()

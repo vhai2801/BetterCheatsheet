@@ -27,9 +27,19 @@ struct TabItem: Codable, Identifiable, Equatable {
     var editableInOverlay: Bool = false
     /// Source of truth for content when the tab is NOT a Note tab.
     var shortcutRows: [ShortcutRow] = []
+    /// Only meaningful when `editableInOverlay` is false (a table tab):
+    /// picks which of the two table templates this tab uses, chosen once
+    /// via the "+" flow's dropdown and - like `editableInOverlay` - never
+    /// flipped afterward. false (default, and what every pre-existing tab
+    /// decodes as) is the original "Keyboard Shortcut" template with
+    /// physical modifier-key capture; true is "Trackpad Shortcut", which
+    /// swaps that for the older ALL-CAPS-keyword auto-replace instead,
+    /// since trackpad gestures are described in longer free text rather
+    /// than a single physical key - see ShortcutTableView/TextReplacement.
+    var isTrackpadTemplate: Bool = false
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, content, rtfData, editableInOverlay, shortcutRows
+        case id, name, content, rtfData, editableInOverlay, shortcutRows, isTrackpadTemplate
     }
 
     init(name: String) {
@@ -43,6 +53,7 @@ struct TabItem: Codable, Identifiable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         editableInOverlay = try container.decodeIfPresent(Bool.self, forKey: .editableInOverlay) ?? false
         shortcutRows = try container.decodeIfPresent([ShortcutRow].self, forKey: .shortcutRows) ?? []
+        isTrackpadTemplate = try container.decodeIfPresent(Bool.self, forKey: .isTrackpadTemplate) ?? false
         if let data = try container.decodeIfPresent(Data.self, forKey: .rtfData) {
             rtfData = data
         } else {
@@ -59,6 +70,7 @@ struct TabItem: Codable, Identifiable, Equatable {
         try container.encode(rtfData, forKey: .rtfData)
         try container.encode(editableInOverlay, forKey: .editableInOverlay)
         try container.encode(shortcutRows, forKey: .shortcutRows)
+        try container.encode(isTrackpadTemplate, forKey: .isTrackpadTemplate)
     }
 
     static let defaultAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13)]
@@ -160,9 +172,13 @@ final class AppState: ObservableObject {
     /// Starts with one empty row (rather than the fully-empty table state)
     /// so there's already a Shortcut field ready to type into right after
     /// naming the tab - see TabBarView's `commitNewTab` for the focus jump.
-    func addTab(named name: String) {
+    /// `isTrackpad` picks which of the two table templates (see
+    /// `TabItem.isTrackpadTemplate`) this tab uses - chosen via the "+"
+    /// flow's dropdown, defaulting to the original Keyboard template.
+    func addTab(named name: String, isTrackpad: Bool = false) {
         var tab = TabItem(name: name)
         tab.shortcutRows = [ShortcutRow()]
+        tab.isTrackpadTemplate = isTrackpad
         tabs.append(tab)
         selectedTabID = tab.id
     }
