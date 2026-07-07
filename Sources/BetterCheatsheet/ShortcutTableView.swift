@@ -99,21 +99,32 @@ struct ShortcutTableView: View {
                             Color.clear.frame(width: 16, height: 1)
                         }
                         shortcutColumnCell(showsHandles: isEditable) { Text("Shortcut") }
+                        // The GeometryReader/preference lives on this one
+                        // cell specifically, not chained after the GridRow
+                        // itself - a modifier chained onto a GridRow is
+                        // broadcast to every cell in the row individually
+                        // (a Grid quirk), so attaching it to the row was
+                        // giving every cell, including the 1pt-tall trailing
+                        // spacer below, its own competing measurement; the
+                        // spacer's tiny frame - being the last one written -
+                        // was the one HeaderFramePreferenceKey ended up
+                        // with, placing the separator across the middle of
+                        // the header text instead of below it.
                         Text("Action")
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: HeaderFramePreferenceKey.self,
+                                        value: geo.frame(in: .named(Self.rowDragSpace))
+                                    )
+                                }
+                            )
                         if isEditable {
                             Color.clear.frame(width: 16, height: 1)
                         }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: HeaderFramePreferenceKey.self,
-                                value: geo.frame(in: .named(Self.rowDragSpace))
-                            )
-                        }
-                    )
 
                     gapView(at: 0)
 
