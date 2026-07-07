@@ -87,14 +87,19 @@ struct ShortcutTableView: View {
     @State private var rowFrames: [UUID: CGRect] = [:]
     @State private var gripFrames: [UUID: CGRect] = [:]
     @State private var headerFrame: CGRect = .zero
-    /// The ScrollView's own width - tracked explicitly (background +
+    /// The ScrollView's own size - tracked explicitly (background +
     /// PreferenceKey, same pattern as headerFrame/rowFrames) rather than
     /// read from a GeometryReader placed directly as the separator
     /// overlay's own content, which was reporting a size matching the
     /// Grid's own (now narrow, fixed-size) natural width instead of the
     /// true ScrollView viewport - the actual cause of the separator lines
     /// stopping partway across instead of reaching the trailing edge.
-    @State private var scrollViewWidth: CGFloat = 0
+    /// Also used (both dimensions, not just width) to explicitly floor the
+    /// content's `.frame` at the viewport's real size - see the `.frame`
+    /// call in `body` for why `maxWidth/maxHeight: .infinity` alone wasn't
+    /// enough once the ScrollView scrolled both axes.
+    @State private var scrollViewSize: CGSize = .zero
+    private var scrollViewWidth: CGFloat { scrollViewSize.width }
     @State private var draggingRowID: UUID?
     @State private var draggedRowOriginFrame: CGRect?
     @State private var draggedGripOriginFrame: CGRect?
@@ -240,11 +245,27 @@ struct ShortcutTableView: View {
                 }
                 .padding(12)
                 // Forces the Grid to report/use its own natural (sum of
-                // column widths) size horizontally, rather than stretching
-                // to whatever width the ScrollView happens to make
-                // available - otherwise a narrow Shortcut column setting
+                // column widths, sum of row heights) size in *both*
+                // dimensions, rather than stretching to whatever size an
+                // ancestor happens to offer. Horizontal was the original
+                // motivation - otherwise a narrow Shortcut column setting
                 // was being visually overridden by the container's width.
-                .fixedSize(horizontal: true, vertical: false)
+                // Vertical was added 2026-07-07: once the outer `.frame`
+                // below started flooring its *own* size at the full
+                // viewport height (to stop the ScrollView from centering
+                // short content - see that `.frame` call), a Grid that
+                // wasn't also vertically fixed-size took that as license to
+                // stretch its own rows to fill the newly-tall space instead
+                // of staying compact - and since the Shortcut column's cell
+                // has its own `.frame(alignment: .leading)` (which implies
+                // vertical *center*, not top, for that one cell), its text
+                // rendered centered within its now-inflated row while
+                // "Action" (a plain, unwrapped `Text`) stayed pinned to the
+                // top - the two header labels visibly split apart. Fixing
+                // the Grid's size in both axes here means the outer
+                // `.frame`'s minHeight can only pad space *around* it, never
+                // feed back into how the Grid lays out its own rows.
+                .fixedSize(horizontal: true, vertical: true)
                 }
             }
             // The Grid's own .fixedSize above keeps its columns narrow, but
@@ -253,18 +274,33 @@ struct ShortcutTableView: View {
             // its parent actually gives it - which was the real reason
             // both the separator lines and the native scrollbar stopped
             // well short of the window's true edge instead of reaching it.
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // `minWidth`/`minHeight` (not `maxWidth`/`maxHeight`) pinned to
+            // the ScrollView's own last-measured size, not `.infinity` - a
+            // ScrollView that scrolls *both* axes (added for the horizontal-
+            // scroll fix above) proposes an unbounded/intrinsic size to its
+            // content along *both* axes now, so `maxWidth/maxHeight:
+            // .infinity` had no concrete offered size to grow into and
+            // resolved to the content's own natural size either way; the
+            // ScrollView then centered that natural size within its
+            // viewport whenever it was smaller along either axis (a new tab
+            // - one empty row - showed its header vertically centered
+            // instead of pinned to the top; real bug, fixed 2026-07-07).
+            // Flooring at the *actual measured viewport size* (`scrollViewSize`,
+            // see below) instead is a concrete, non-infinite minimum the
+            // ScrollView can't out-propose, so it never sees content
+            // smaller than its own viewport to begin with.
+            .frame(minWidth: scrollViewSize.width, minHeight: scrollViewSize.height, alignment: .topLeading)
         }
         .background(
             GeometryReader { proxy in
-                Color.clear.preference(key: ScrollViewWidthPreferenceKey.self, value: proxy.size.width)
+                Color.clear.preference(key: ScrollViewSizePreferenceKey.self, value: proxy.size)
             }
         )
         .coordinateSpace(name: Self.rowDragSpace)
         .onPreferenceChange(UUIDFramePreferenceKey<RowFrameTag>.self) { rowFrames = $0 }
         .onPreferenceChange(UUIDFramePreferenceKey<GripFrameTag>.self) { gripFrames = $0 }
         .onPreferenceChange(HeaderFramePreferenceKey.self) { headerFrame = $0 }
-        .onPreferenceChange(ScrollViewWidthPreferenceKey.self) { scrollViewWidth = $0 }
+        .onPreferenceChange(ScrollViewSizePreferenceKey.self) { scrollViewSize = $0 }
         .overlay(alignment: .topLeading) {
             separatorOverlay
             if let draggingRowID, let row = rows.first(where: { $0.id == draggingRowID }),
@@ -660,11 +696,11 @@ private struct HeaderFramePreferenceKey: PreferenceKey {
     }
 }
 
-private struct ScrollViewWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+private struct ScrollViewSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
         let next = nextValue()
-        if next != 0 {
+        if next != .zero {
             value = next
         }
     }
