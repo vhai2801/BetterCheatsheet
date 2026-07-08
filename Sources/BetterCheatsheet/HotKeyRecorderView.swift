@@ -49,14 +49,7 @@ final class KeyRecorderNSView: NSView {
             super.flagsChanged(with: event)
             return
         }
-        let keyCode = UInt32(event.keyCode)
-        guard let category = ModifierKeyCode.category(for: keyCode) else { return }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(category) {
-            heldModifierKeyCodes.insert(keyCode)
-        } else {
-            heldModifierKeyCodes = heldModifierKeyCodes.filter { ModifierKeyCode.category(for: $0) != category }
-        }
+        heldModifierKeyCodes = ModifierKeyCode.updating(heldModifierKeyCodes, for: event)
     }
 
     override func keyDown(with event: NSEvent) {

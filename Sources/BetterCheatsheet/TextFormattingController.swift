@@ -40,15 +40,16 @@ final class TextFormattingController {
     /// full box (ascender through descender), and since AppKit derives the
     /// blinking insertion-point cursor's size from that same box, the
     /// cursor visibly ballooned right along with the spacing at anything
-    /// above 1x - two different attempts at manually redrawing the cursor
-    /// to compensate (drawInsertionPoint overrides in a custom NSTextView
-    /// subclass) still didn't line up with the actual text and were
-    /// reverted too. `lineSpacing` sits outside any single line's own
-    /// metrics entirely, so the cursor - sized from the *current* line
-    /// alone - should be unaffected no matter how much gap is added before
-    /// the next line, with no custom drawing code needed at all (not yet
-    /// independently reconfirmed against the actual cursor rendering -
-    /// verify this specifically). Unlike `modifyFont`, which only ever
+    /// above 1x. `lineSpacing` doesn't fully avoid this either - confirmed
+    /// the cursor still renders oversized on every line *after* a break
+    /// (AppKit bakes the leading gap into that next line's own box too),
+    /// though at least the first/only line of a paragraph stays normal.
+    /// Two attempts at manually redrawing the cursor to compensate
+    /// (`drawInsertionPoint` overrides in a custom NSTextView subclass, one
+    /// guessing a fixed offset, one computing the real baseline from the
+    /// layout manager) were both tried and reverted - accepted as a known
+    /// cosmetic limitation per direct request rather than pursued further.
+    /// Unlike `modifyFont`, which only ever
     /// touches the selection or (with no selection) `typingAttributes`,
     /// this also applies across the *entire* note when there's no
     /// selection - line spacing reads as a whole-note setting ("make this

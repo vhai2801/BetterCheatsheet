@@ -57,16 +57,7 @@ struct EditorView: View {
                             }
                             .help("Change font")
 
-                            Menu {
-                                ForEach(EditorView.lineSpacingOptions, id: \.value) { option in
-                                    Button(option.label) {
-                                        formattingController.setLineSpacing(option.value)
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: "arrow.up.and.down.text.horizontal")
-                            }
-                            .help("Line spacing")
+                            lineSpacingMenu { formattingController.setLineSpacing($0) }
                         } else {
                             Button {
                                 appState.tabs[index].shortcutRows.append(ShortcutRow())
@@ -89,16 +80,7 @@ struct EditorView: View {
                             }
                             .help("Increase shortcut/action text size")
 
-                            Menu {
-                                ForEach(EditorView.lineSpacingOptions, id: \.value) { option in
-                                    Button(option.label) {
-                                        settings.shortcutTableLineSpacing = option.value
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: "arrow.up.and.down.text.horizontal")
-                            }
-                            .help("Line spacing")
+                            lineSpacingMenu { settings.shortcutTableLineSpacing = $0 }
                         }
 
                         Spacer()
@@ -145,5 +127,18 @@ struct EditorView: View {
             }
         }
         .frame(minWidth: 420, minHeight: 320)
+    }
+
+    /// Shared by both toolbar branches above (Note tab and table tab) -
+    /// identical menu, just a different destination for the chosen value.
+    private func lineSpacingMenu(onSelect: @escaping (CGFloat) -> Void) -> some View {
+        Menu {
+            ForEach(EditorView.lineSpacingOptions, id: \.value) { option in
+                Button(option.label) { onSelect(option.value) }
+            }
+        } label: {
+            Image(systemName: "arrow.up.and.down.text.horizontal")
+        }
+        .help("Line spacing")
     }
 }

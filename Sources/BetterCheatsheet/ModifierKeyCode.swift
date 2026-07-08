@@ -16,13 +16,6 @@ enum ModifierKeyCode {
         }
     }
 
-    static func isRightSide(_ keyCode: UInt32) -> Bool {
-        switch Int(keyCode) {
-        case kVK_RightCommand, kVK_RightShift, kVK_RightOption, kVK_RightControl: return true
-        default: return false
-        }
-    }
-
     static func symbol(for keyCode: UInt32) -> String {
         switch Int(keyCode) {
         case kVK_Command, kVK_RightCommand: return "⌘"
@@ -40,6 +33,25 @@ enum ModifierKeyCode {
         (.shift, UInt32(kVK_Shift), UInt32(kVK_RightShift)),
         (.command, UInt32(kVK_Command), UInt32(kVK_RightCommand)),
     ]
+
+    /// Updates a set of currently-held physical modifier keyCodes given a
+    /// `flagsChanged` event - shared by `HotKeyRecorderView` and
+    /// `SideSensitiveHotKeyMonitor`, which both need to track which specific
+    /// left/right modifier keys are down the same way: insert the keyCode
+    /// when its category's flag is now set (a fresh press), or drop every
+    /// keyCode in that same category when it's not (a release - there's
+    /// only ever one side of a given modifier held at a time in practice,
+    /// but this doesn't assume that).
+    static func updating(_ held: Set<UInt32>, for event: NSEvent) -> Set<UInt32> {
+        let keyCode = UInt32(event.keyCode)
+        guard let category = category(for: keyCode) else { return held }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(category) {
+            return held.union([keyCode])
+        } else {
+            return held.filter { self.category(for: $0) != category }
+        }
+    }
 
     /// Used when side-sensitivity is turned on but no side-specific recording
     /// has been made yet (e.g. migrating an older generic hotkey) - assumes

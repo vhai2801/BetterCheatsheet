@@ -774,6 +774,20 @@ private enum ShortcutCaptureMode {
     case none, keyboard, trackpad
 }
 
+/// A plain NSTextField that refuses every Edit-menu action (Copy/Cut/Paste/
+/// Undo/Redo/Select All - see AppDelegate.setUpMainMenu) while it has
+/// focus. Used only for the Keyboard template's Shortcut column: composing
+/// a shortcut label there means literally holding e.g. Cmd+C/Cmd+V/Cmd+Z,
+/// and a real app-wide Edit menu (added for Note tabs) would otherwise
+/// intercept exactly those key combos as its own Copy/Paste/Undo before
+/// this field's physical-key-capture logic ever sees the letter, breaking
+/// the one feature that makes this column what it is.
+private final class KeyboardCaptureTextField: NSTextField, NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        false
+    }
+}
+
 /// A plain single-line NSTextField used for every table cell. SwiftUI's
 /// TextField has no way on macOS 13 to intercept individual keystrokes or
 /// Tab, so this wraps NSTextField directly to get both:
@@ -789,20 +803,6 @@ private enum ShortcutCaptureMode {
 ///   deliberately tied to `captureMode == .keyboard`, so the Action column
 ///   and the Trackpad template's Shortcut column (`.none`/`.trackpad`) keep
 ///   completely normal text-field behavior beyond their own capture, if any
-/// A plain NSTextField that refuses every Edit-menu action (Copy/Cut/Paste/
-/// Undo/Redo/Select All - see AppDelegate.setUpMainMenu) while it has
-/// focus. Used only for the Keyboard template's Shortcut column: composing
-/// a shortcut label there means literally holding e.g. Cmd+C/Cmd+V/Cmd+Z,
-/// and a real app-wide Edit menu (added for Note tabs) would otherwise
-/// intercept exactly those key combos as its own Copy/Paste/Undo before
-/// this field's physical-key-capture logic ever sees the letter, breaking
-/// the one feature that makes this column what it is.
-private final class KeyboardCaptureTextField: NSTextField, NSMenuItemValidation {
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        false
-    }
-}
-
 private struct ShortcutTableTextField: NSViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat = 13
@@ -901,7 +901,7 @@ private struct ShortcutTableTextField: NSViewRepresentable {
             // Space isn't a modifier, so it never reaches handleFlagsChanged
             // above - without this, physically pressing it here just typed a
             // literal space instead of the expected "␣" symbol. Only this
-            // (Shortcut column, capturesModifierKeys) field's monitor should
+            // (Shortcut column, captureMode == .keyboard) field's monitor should
             // ever swallow the event (returning nil), which handleSpaceIfNeeded
             // only does once it's confirmed via currentEditor() that this
             // exact field is the one being edited - every other row's own
@@ -1096,7 +1096,7 @@ private struct ShortcutTableTextField: NSViewRepresentable {
         /// would normally do instead - move to the Action field in this row
         /// (or append+focus a new row, on the last row's Action field -
         /// though that path never actually reaches here, since it isn't a
-        /// `capturesModifierKeys` field) for forward Tab, or back to the
+        /// `captureMode == .keyboard` field) for forward Tab, or back to the
         /// previous field for Shift+Tab.
         private func handleTab(isBacktab: Bool, control: NSControl) -> Bool {
             let now = Date()

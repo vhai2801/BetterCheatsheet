@@ -51,14 +51,7 @@ final class SideSensitiveHotKeyMonitor {
     }
 
     private func updateHeldModifiers(with event: NSEvent) {
-        let keyCode = UInt32(event.keyCode)
-        guard let category = ModifierKeyCode.category(for: keyCode) else { return }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(category) {
-            currentlyHeld.insert(keyCode)
-        } else {
-            currentlyHeld = currentlyHeld.filter { ModifierKeyCode.category(for: $0) != category }
-        }
+        currentlyHeld = ModifierKeyCode.updating(currentlyHeld, for: event)
     }
 
     private func matches(event: NSEvent, config: HotKeyConfig) -> Bool {

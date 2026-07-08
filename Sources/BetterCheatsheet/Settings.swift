@@ -120,24 +120,19 @@ final class SettingsStore: ObservableObject {
         try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
         fileURL = supportDir.appendingPathComponent("settings.json")
 
-        if let data = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
-            theme = decoded.theme
-            hotKey = decoded.hotKey
-            shortcutColumnWidth = decoded.shortcutColumnWidth ?? Self.defaultShortcutColumnWidth
-            shortcutColumnLeadingInset = decoded.shortcutColumnLeadingInset ?? 0
-            shortcutTableFontSize = decoded.shortcutTableFontSize ?? Self.defaultShortcutTableFontSize
-            shortcutsDisplayAsText = decoded.shortcutsDisplayAsText ?? false
-            shortcutTableLineSpacing = decoded.shortcutTableLineSpacing ?? Self.defaultShortcutTableLineSpacing
-        } else {
-            theme = .light
-            hotKey = HotKeyConfig(keyCode: DefaultHotKey.keyCode, modifiers: DefaultHotKey.modifiers)
-            shortcutColumnWidth = Self.defaultShortcutColumnWidth
-            shortcutColumnLeadingInset = 0
-            shortcutTableFontSize = Self.defaultShortcutTableFontSize
-            shortcutsDisplayAsText = false
-            shortcutTableLineSpacing = Self.defaultShortcutTableLineSpacing
-        }
+        // A single `decoded?.field ?? default` pass covers both "settings.json
+        // exists and decoded fine" and "missing or corrupt" (decoded is nil,
+        // so every field just takes its default) - no need for two full,
+        // separately-maintained branches that only differed in one being
+        // spelled `decoded.x ?? default` and the other just `default`.
+        let decoded = (try? Data(contentsOf: fileURL)).flatMap { try? JSONDecoder().decode(Persisted.self, from: $0) }
+        theme = decoded?.theme ?? .light
+        hotKey = decoded?.hotKey ?? HotKeyConfig(keyCode: DefaultHotKey.keyCode, modifiers: DefaultHotKey.modifiers)
+        shortcutColumnWidth = decoded?.shortcutColumnWidth ?? Self.defaultShortcutColumnWidth
+        shortcutColumnLeadingInset = decoded?.shortcutColumnLeadingInset ?? 0
+        shortcutTableFontSize = decoded?.shortcutTableFontSize ?? Self.defaultShortcutTableFontSize
+        shortcutsDisplayAsText = decoded?.shortcutsDisplayAsText ?? false
+        shortcutTableLineSpacing = decoded?.shortcutTableLineSpacing ?? Self.defaultShortcutTableLineSpacing
     }
 
     private func save() {
