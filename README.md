@@ -19,7 +19,7 @@ A native macOS app for keeping notes on your custom keyboard shortcuts, with a g
 - **Left/right modifier matching** (optional) — make a shortcut trigger only on, say, the right Shift key, not either side
 - **Light / Dark / Frosted Glass** themes (Frosted Glass applies to the overlay only)
 - Standard editing shortcuts (Cut/Copy/Paste/Undo/Redo/Select All) work in Note tabs and table Action fields
-- **Export/Import** — Settings has an Export All Tabs / Import Tabs pair to move every tab (Note tabs' rich text included) to another machine via a single file; importing lets you overwrite your current tabs or add the imported ones alongside them
+- **Export/Import** — Settings has an Export All Tabs / Import Tabs pair to move every tab (Note tabs' rich text included) to another machine via a single file; importing lets you overwrite your current tabs or add the imported ones alongside them. [`Example-tabs.json`](./Example-tabs.json) in this repo is a real export you can import to see the format, or just to get a starter set of macOS/browser/trackpad shortcuts
 - Fresh installs come with starter "General" and "Texts based" cheatsheets pre-filled — freely editable or deletable like any other tab
 - Lives in the menu bar; closing the main editor window drops it out of the Dock until reopened from the status item or Dock
 - No network access of any kind; notes are stored locally only
