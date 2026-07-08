@@ -13,9 +13,11 @@ A native macOS app for keeping notes on your custom keyboard shortcuts, with a g
 - Letters typed into the Keyboard template's Shortcut column are auto-capitalized (e.g. typing `c` after `⌘` gives "⌘C") - no need to hold Shift just to get the key capitalized
 - If a remapped Caps Lock (e.g. to a Hyper key) still also engages the OS's native Caps Lock, the Shortcut column forces it back off automatically while you're typing there
 - **Symbol or spelled-out display** — a Settings toggle shows shortcuts either as symbols (⌘⇧K) or spelled out (Cmd Shift K)
-- Adjustable Shortcut column width and a shared table font size
+- Adjustable Shortcut column width, a shared table font size, and adjustable line spacing (1x/1.25x/1.5x/2x) for both table tabs and Note tabs
 - **Left/right modifier matching** (optional) — make a shortcut trigger only on, say, the right Shift key, not either side
 - **Light / Dark / Frosted Glass** themes (Frosted Glass applies to the overlay only)
+- Standard editing shortcuts (Cut/Copy/Paste/Undo/Redo/Select All) work in Note tabs and table Action fields
+- **Export/Import** — Settings has an Export All Tabs / Import Tabs pair to move every tab (Note tabs' rich text included) to another machine via a single file; importing lets you overwrite your current tabs or add the imported ones alongside them
 - Fresh installs come with starter "General" and "Texts based" cheatsheets pre-filled — freely editable or deletable like any other tab
 - Lives in the menu bar; closing the main editor window drops it out of the Dock until reopened from the status item or Dock
 - No network access of any kind; notes are stored locally only
