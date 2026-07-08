@@ -10,6 +10,10 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("General") {
+                Toggle("Open at Login", isOn: $settings.launchAtLogin)
+            }
+
             Section("Global Shortcut") {
                 HStack {
                     Text("Toggle overlay:")

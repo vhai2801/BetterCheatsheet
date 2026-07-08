@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import ServiceManagement
 
 enum AppTheme: String, Codable, CaseIterable, Identifiable {
     case light, dark, frostedGlass
@@ -93,6 +94,17 @@ final class SettingsStore: ObservableObject {
     @Published var shortcutTableLineSpacing: CGFloat {
         didSet { save() }
     }
+    /// Not persisted to settings.json - `SMAppService.mainApp.status` (the
+    /// system's login-item registry) is the source of truth, since the user
+    /// can also remove it directly in System Settings > Login Items, which
+    /// would silently desync a locally-cached bool otherwise.
+    @Published var launchAtLogin: Bool {
+        didSet {
+            guard !isApplyingLoginItemStatus else { return }
+            applyLoginItemChange(enabled: launchAtLogin)
+        }
+    }
+    private var isApplyingLoginItemStatus = false
 
     private let fileURL: URL
 
@@ -133,6 +145,24 @@ final class SettingsStore: ObservableObject {
         shortcutTableFontSize = decoded?.shortcutTableFontSize ?? Self.defaultShortcutTableFontSize
         shortcutsDisplayAsText = decoded?.shortcutsDisplayAsText ?? false
         shortcutTableLineSpacing = decoded?.shortcutTableLineSpacing ?? Self.defaultShortcutTableLineSpacing
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    /// Reverts the toggle to whatever the system actually reports on
+    /// failure (e.g. registration rejected) instead of leaving it showing a
+    /// state that doesn't match reality.
+    private func applyLoginItemChange(enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            isApplyingLoginItemStatus = true
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            isApplyingLoginItemStatus = false
+        }
     }
 
     private func save() {
