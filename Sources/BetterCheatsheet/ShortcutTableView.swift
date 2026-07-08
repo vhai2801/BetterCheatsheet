@@ -38,6 +38,19 @@ struct ShortcutTableView: View {
     private let actionColumnMinWidth: CGFloat = 120
     private let deleteButtonWidth: CGFloat = 20
 
+    /// SwiftUI's `.lineSpacing(_:)` takes *extra* points added between
+    /// wrapped lines, not a multiple of line height the way
+    /// `settings.shortcutTableLineSpacing` (1/1.25/1.5/2, same options as
+    /// the Note tab's line-spacing menu) is expressed - converted here
+    /// using the current font size as the baseline unit, so it reads on
+    /// roughly the same visual scale as the Note tab's control. Only
+    /// visible on read-only (overlay) cells, since that's the only place a
+    /// single Shortcut/Action cell ever wraps to more than one line - the
+    /// main window's editable `NSTextField` cells are single-line only.
+    private var extraLineSpacing: CGFloat {
+        (settings.shortcutTableLineSpacing - 1) * settings.shortcutTableFontSize * 0.5
+    }
+
     /// Explicit width for the Action column, computed to fill whatever
     /// space is actually left in the ScrollView's own viewport
     /// (`scrollViewWidth`, see below) after every other fixed-width
@@ -148,7 +161,12 @@ struct ShortcutTableView: View {
                         .foregroundStyle(.secondary)
                         .padding(12)
                 } else {
-                    Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 8) {
+                    // 8 scaled by shortcutTableLineSpacing (default 1, so 8
+                    // unscaled) - the same "line spacing" control that also
+                    // sets .lineSpacing(_:) on the read-only Text cells
+                    // below, so row-to-row gaps and within-cell wrapped-line
+                    // gaps grow together rather than looking mismatched.
+                    Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 8 * settings.shortcutTableLineSpacing) {
                     GridRow {
                         if isEditable {
                             Color.clear.frame(width: 16, height: 1)
@@ -203,8 +221,20 @@ struct ShortcutTableView: View {
                                     )
                                     .modifier(FocusIfNeeded(focusedRowID: $focusedRowID, rowID: row.id))
                                 } else {
-                                    Text(settings.shortcutsDisplayAsText ? TextReplacement.spelledOut(row.shortcut) : row.shortcut)
+                                    // The symbol/text toggle only makes sense for the
+                                    // Keyboard template, where every character is its own
+                                    // discrete symbol - TextReplacement.spelledOut(_:) walks
+                                    // the string character-by-character and rejoins with a
+                                    // space between every token, which is exactly right for
+                                    // that ("⌘⇧K" -> "Cmd Shift K") but mangles the Trackpad
+                                    // template's free-text descriptions into one space
+                                    // between every single letter ("Two Finger Tap" -> "T w
+                                    // o ... "). Trackpad rows are already stored as plain
+                                    // readable text, so they're shown as-is regardless of
+                                    // this setting.
+                                    Text(settings.shortcutsDisplayAsText && !isTrackpadTemplate ? TextReplacement.spelledOut(row.shortcut) : row.shortcut)
                                         .font(.system(size: settings.shortcutTableFontSize))
+                                        .lineSpacing(extraLineSpacing)
                                         .fixedSize(horizontal: false, vertical: true)
                                         .textSelection(.enabled)
                                 }
@@ -665,6 +695,7 @@ struct ShortcutTableView: View {
             } else {
                 Text(text.wrappedValue)
                     .font(.system(size: settings.shortcutTableFontSize))
+                    .lineSpacing(extraLineSpacing)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -758,6 +789,20 @@ private enum ShortcutCaptureMode {
 ///   deliberately tied to `captureMode == .keyboard`, so the Action column
 ///   and the Trackpad template's Shortcut column (`.none`/`.trackpad`) keep
 ///   completely normal text-field behavior beyond their own capture, if any
+/// A plain NSTextField that refuses every Edit-menu action (Copy/Cut/Paste/
+/// Undo/Redo/Select All - see AppDelegate.setUpMainMenu) while it has
+/// focus. Used only for the Keyboard template's Shortcut column: composing
+/// a shortcut label there means literally holding e.g. Cmd+C/Cmd+V/Cmd+Z,
+/// and a real app-wide Edit menu (added for Note tabs) would otherwise
+/// intercept exactly those key combos as its own Copy/Paste/Undo before
+/// this field's physical-key-capture logic ever sees the letter, breaking
+/// the one feature that makes this column what it is.
+private final class KeyboardCaptureTextField: NSTextField, NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        false
+    }
+}
+
 private struct ShortcutTableTextField: NSViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat = 13
@@ -765,11 +810,25 @@ private struct ShortcutTableTextField: NSViewRepresentable {
     var captureMode: ShortcutCaptureMode = .none
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        // The Keyboard template's whole point is composing shortcuts like
+        // "⌘C"/"⌘V"/"⌘Z" by literally holding those keys - AppDelegate's
+        // Edit menu (added for Note tabs, etc.) gives the *app* real Cmd+C/
+        // V/Z/A key equivalents now, which would otherwise intercept
+        // exactly those keystrokes here before they ever reach this field
+        // as typed characters. KeyboardCaptureTextField disables Edit-menu
+        // validation while it holds focus so they keep landing as literal
+        // text instead, same as before that menu existed.
+        let field = captureMode == .keyboard ? KeyboardCaptureTextField() : NSTextField()
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = NSFont.systemFont(ofSize: fontSize)
+        // A bare NSTextField's default cell line-break mode is .byClipping
+        // (hard-cuts overflowing text with no indication at all, unless the
+        // field happens to be focused, where the cursor/scroll makes the
+        // rest reachable) - .byTruncatingTail instead shows "…" so there's
+        // always a visible sign there's more text, even before clicking in.
+        field.lineBreakMode = .byTruncatingTail
         field.delegate = context.coordinator
         if captureMode == .keyboard {
             context.coordinator.startObservingModifierKeys(for: field)

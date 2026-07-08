@@ -53,6 +53,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
+        // Same gap as Cmd+W/Cmd+M above, but for Cmd+C/V/X/Z/A: with no Edit
+        // menu at all, those keys had no menu item to route through and
+        // silently did nothing everywhere - Note tabs (both the main window
+        // and the overlay) and the Shortcut/Action table cells alike. Nil
+        // targets route through the responder chain to whatever's first
+        // responder, same as the Window menu above - works automatically
+        // for any NSTextView/NSTextField, no per-view wiring needed.
+        // Undo/Redo use the informal "undo:"/"redo:" selectors (not a
+        // formally declared Swift method on NSResponder) since that's what
+        // NSTextView's own internal NSUndoManager integration responds to;
+        // Cut/Copy/Paste/Select All are on the NSText protocol, which
+        // NSTextView/NSTextField/NSTextField's field editor all conform to.
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redoItem = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
         let windowMenuItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")

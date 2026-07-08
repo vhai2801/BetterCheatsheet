@@ -10,6 +10,22 @@ struct EditorView: View {
 
     @State private var formattingController = TextFormattingController()
 
+    /// The line-spacing multiples offered in both the Note tab toolbar's
+    /// menu (`TextFormattingController.setLineSpacing(_:)`, a real
+    /// NSParagraphStyle line-height multiple) and the table tabs' toolbar
+    /// menu (`settings.shortcutTableLineSpacing`, scaled into row spacing
+    /// and `.lineSpacing(_:)` - see ShortcutTableView.swift) - matches the
+    /// options Word/Docs expose. No "0" (would mean "natural/unmodified
+    /// line height") - removed per direct request, since it rendered
+    /// visually identical to "1" (an exact 1x multiple of that same
+    /// natural height) for the fonts this app uses, making it a redundant
+    /// option. Explicit labels rather than formatting the `CGFloat`
+    /// directly, so "1"/"2" don't risk rendering with a stray ".0"
+    /// depending on locale.
+    private static let lineSpacingOptions: [(label: String, value: CGFloat)] = [
+        ("1", 1), ("1.25", 1.25), ("1.5", 1.5), ("2", 2),
+    ]
+
     var body: some View {
         VStack(spacing: 0) {
             TabBarView(appState: appState, showsSettingsTab: true)
@@ -40,6 +56,17 @@ struct EditorView: View {
                                 Image(systemName: "textformat")
                             }
                             .help("Change font")
+
+                            Menu {
+                                ForEach(EditorView.lineSpacingOptions, id: \.value) { option in
+                                    Button(option.label) {
+                                        formattingController.setLineSpacing(option.value)
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "arrow.up.and.down.text.horizontal")
+                            }
+                            .help("Line spacing")
                         } else {
                             Button {
                                 appState.tabs[index].shortcutRows.append(ShortcutRow())
@@ -61,6 +88,17 @@ struct EditorView: View {
                                 Image(systemName: "textformat.size.larger")
                             }
                             .help("Increase shortcut/action text size")
+
+                            Menu {
+                                ForEach(EditorView.lineSpacingOptions, id: \.value) { option in
+                                    Button(option.label) {
+                                        settings.shortcutTableLineSpacing = option.value
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "arrow.up.and.down.text.horizontal")
+                            }
+                            .help("Line spacing")
                         }
 
                         Spacer()

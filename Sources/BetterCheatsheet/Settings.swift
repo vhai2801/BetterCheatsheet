@@ -81,6 +81,18 @@ final class SettingsStore: ObservableObject {
     @Published var shortcutsDisplayAsText: Bool {
         didSet { save() }
     }
+    /// Shared the same way as the column width/inset/font size above. A
+    /// multiple (1, 1.25, 1.5, 2 - same options as the Note tab's line
+    /// spacing menu, see EditorView.lineSpacingOptions) applied two ways at
+    /// once in ShortcutTableView: scaling the Grid's row-to-row vertical
+    /// spacing, and as `.lineSpacing(_:)` on the read-only (overlay) Shortcut/
+    /// Action `Text` views specifically, for when long Action text wraps to
+    /// more than one line there - the only place in this table any single
+    /// cell ever spans multiple lines, since the main window's editable
+    /// `NSTextField` cells are single-line only.
+    @Published var shortcutTableLineSpacing: CGFloat {
+        didSet { save() }
+    }
 
     private let fileURL: URL
 
@@ -94,10 +106,12 @@ final class SettingsStore: ObservableObject {
         var shortcutColumnLeadingInset: CGFloat?
         var shortcutTableFontSize: CGFloat?
         var shortcutsDisplayAsText: Bool?
+        var shortcutTableLineSpacing: CGFloat?
     }
 
     static let defaultShortcutColumnWidth: CGFloat = 90
     static let defaultShortcutTableFontSize: CGFloat = 16
+    static let defaultShortcutTableLineSpacing: CGFloat = 1
 
     init() {
         let supportDir = FileManager.default
@@ -114,6 +128,7 @@ final class SettingsStore: ObservableObject {
             shortcutColumnLeadingInset = decoded.shortcutColumnLeadingInset ?? 0
             shortcutTableFontSize = decoded.shortcutTableFontSize ?? Self.defaultShortcutTableFontSize
             shortcutsDisplayAsText = decoded.shortcutsDisplayAsText ?? false
+            shortcutTableLineSpacing = decoded.shortcutTableLineSpacing ?? Self.defaultShortcutTableLineSpacing
         } else {
             theme = .light
             hotKey = HotKeyConfig(keyCode: DefaultHotKey.keyCode, modifiers: DefaultHotKey.modifiers)
@@ -121,6 +136,7 @@ final class SettingsStore: ObservableObject {
             shortcutColumnLeadingInset = 0
             shortcutTableFontSize = Self.defaultShortcutTableFontSize
             shortcutsDisplayAsText = false
+            shortcutTableLineSpacing = Self.defaultShortcutTableLineSpacing
         }
     }
 
@@ -131,7 +147,8 @@ final class SettingsStore: ObservableObject {
             shortcutColumnWidth: shortcutColumnWidth,
             shortcutColumnLeadingInset: shortcutColumnLeadingInset,
             shortcutTableFontSize: shortcutTableFontSize,
-            shortcutsDisplayAsText: shortcutsDisplayAsText
+            shortcutsDisplayAsText: shortcutsDisplayAsText,
+            shortcutTableLineSpacing: shortcutTableLineSpacing
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         try? data.write(to: fileURL, options: .atomic)
