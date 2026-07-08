@@ -30,6 +30,7 @@ Via Homebrew:
 
 ```
 brew tap vhai2801/bettercheatsheet https://github.com/vhai2801/BetterCheatsheet
+brew trust vhai2801/bettercheatsheet
 brew install --cask better-cheatsheet
 ```
 

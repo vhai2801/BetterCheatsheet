@@ -41,7 +41,7 @@ The app is distributed as a Homebrew cask so the user can install/update from th
 
 **Where things live:**
 - Everything lives in this one repo, `https://github.com/vhai2801/BetterCheatsheet` (public, so release assets and the cask are readable with zero auth) — there used to be a separate `homebrew-better-cheatsheet` tap repo, but that's only needed for the `brew tap user/repo` *shorthand* (which requires a repo literally named `homebrew-<repo>`). The explicit-URL form of `brew tap` works against any repo name, so the cask now just lives in `Casks/better-cheatsheet.rb` here.
-- User installs with `brew tap vhai2801/bettercheatsheet https://github.com/vhai2801/BetterCheatsheet && brew install --cask better-cheatsheet`; updates with `brew update && brew upgrade --cask better-cheatsheet`
+- User installs with `brew tap vhai2801/bettercheatsheet https://github.com/vhai2801/BetterCheatsheet && brew trust vhai2801/bettercheatsheet && brew install --cask better-cheatsheet`; updates with `brew update && brew upgrade --cask better-cheatsheet`
 
 **To cut a new release (vX.Y.Z), in order:**
 1. Bump `CFBundleShortVersionString` in `Info.plist`
@@ -56,6 +56,7 @@ The app is distributed as a Homebrew cask so the user can install/update from th
 
 **Gotchas:**
 - Cask needs `depends_on macos: :ventura` (bare symbol, not the deprecated string-comparison form)
+- First tap on a machine needs `brew trust vhai2801/bettercheatsheet` once (confirmed still required even with the explicit-URL tap form), or install fails with "Refusing to load cask ... from untrusted tap"
 - Not notarized (no paid Apple Developer ID) - the cask's `postflight` `xattr -dr com.apple.quarantine` block is required or every fresh install needs a manual right-click-Open
 - Keep `CFBundleShortVersionString`, the git tag, and the cask's `version` identical - the cask's `url` is built from `#{version}` and 404s if they drift
 - Day-to-day dev iteration (not a real release) is just: `./build.sh` (debug), quit the running `/Applications` copy, copy the new `.build/.../debug/BetterCheatsheet.app` over it, relaunch
