@@ -29,7 +29,7 @@ A native macOS app for keeping notes on your custom keyboard shortcuts, with a g
 Via Homebrew:
 
 ```
-brew tap vhai2801/better-cheatsheet
+brew tap vhai2801/bettercheatsheet https://github.com/vhai2801/BetterCheatsheet
 brew install --cask better-cheatsheet
 ```
 

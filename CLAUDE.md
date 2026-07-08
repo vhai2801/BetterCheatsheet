@@ -34,30 +34,28 @@ Built as a Swift Package (not an Xcode project) since only Command Line Tools ar
 - `Info.plist` — bundle metadata (`LSMinimumSystemVersion` 13.0, no network entitlements, `CFBundleIconFile: AppIcon`)
 - `Resources/AppIcon.icns` — white ⌘ glyph on a purple-to-blue gradient squircle, drawn programmatically (no Xcode asset catalog available) and compiled via `sips`/`iconutil`
 - `build.sh` — `swift build` + manual `.app` bundle assembly + ad-hoc `codesign`
+- `Casks/better-cheatsheet.rb` — the Homebrew cask definition, lives in this repo (see Release process below for why there's no separate tap repo)
 
 ## Release process (Homebrew cask distribution)
 The app is distributed as a Homebrew cask so the user can install/update from the terminal on any machine. **This is the runbook whenever asked to "update the app and push a new version."**
 
 **Where things live:**
-- Main repo: `https://github.com/vhai2801/BetterCheatsheet` (public, so release assets are downloadable by `brew install` with zero auth)
-- Tap repo: `https://github.com/vhai2801/homebrew-better-cheatsheet`, local clone at `~/Projects/homebrew-better-cheatsheet` — clone it first if it isn't there on this machine
-- Cask file: `Casks/better-cheatsheet.rb` in the tap repo
-- User installs with `brew tap vhai2801/better-cheatsheet && brew install --cask better-cheatsheet`; updates with `brew update && brew upgrade --cask better-cheatsheet`
+- Everything lives in this one repo, `https://github.com/vhai2801/BetterCheatsheet` (public, so release assets and the cask are readable with zero auth) — there used to be a separate `homebrew-better-cheatsheet` tap repo, but that's only needed for the `brew tap user/repo` *shorthand* (which requires a repo literally named `homebrew-<repo>`). The explicit-URL form of `brew tap` works against any repo name, so the cask now just lives in `Casks/better-cheatsheet.rb` here.
+- User installs with `brew tap vhai2801/bettercheatsheet https://github.com/vhai2801/BetterCheatsheet && brew install --cask better-cheatsheet`; updates with `brew update && brew upgrade --cask better-cheatsheet`
 
 **To cut a new release (vX.Y.Z), in order:**
-1. In `~/Projects/BetterCheatsheet`, bump `CFBundleShortVersionString` in `Info.plist`
+1. Bump `CFBundleShortVersionString` in `Info.plist`
 2. `./build.sh --release`
 3. `ditto -c -k --keepParent .build/arm64-apple-macosx/release/BetterCheatsheet.app BetterCheatsheet-X.Y.Z.zip` — use `ditto`, not `zip -r`, to avoid mangling the `.app` bundle
 4. `shasum -a 256 BetterCheatsheet-X.Y.Z.zip` — save the hash
-5. Commit the version bump, push, then `git tag vX.Y.Z && git push origin vX.Y.Z`
-6. `gh release create vX.Y.Z BetterCheatsheet-X.Y.Z.zip --title "vX.Y.Z" --notes "..."`
-7. Verify: `curl -sL -o /dev/null -w "%{http_code}\n" "https://github.com/vhai2801/BetterCheatsheet/releases/download/vX.Y.Z/BetterCheatsheet-X.Y.Z.zip"` should print `200`
-8. In `~/Projects/homebrew-better-cheatsheet`, update `version`/`sha256` in `Casks/better-cheatsheet.rb`, commit, push
+5. Update `version`/`sha256` in `Casks/better-cheatsheet.rb` to match
+6. Commit the version bump + cask update, push, then `git tag vX.Y.Z && git push origin vX.Y.Z`
+7. `gh release create vX.Y.Z BetterCheatsheet-X.Y.Z.zip --title "vX.Y.Z" --notes "..."`
+8. Verify: `curl -sL -o /dev/null -w "%{http_code}\n" "https://github.com/vhai2801/BetterCheatsheet/releases/download/vX.Y.Z/BetterCheatsheet-X.Y.Z.zip"` should print `200`
 9. Test locally: `brew update && brew upgrade --cask better-cheatsheet`, confirm the installed app reports the new version
 
 **Gotchas:**
 - Cask needs `depends_on macos: :ventura` (bare symbol, not the deprecated string-comparison form)
-- First tap on a machine needs `brew trust vhai2801/better-cheatsheet` once, or install fails with "untrusted tap"
 - Not notarized (no paid Apple Developer ID) - the cask's `postflight` `xattr -dr com.apple.quarantine` block is required or every fresh install needs a manual right-click-Open
 - Keep `CFBundleShortVersionString`, the git tag, and the cask's `version` identical - the cask's `url` is built from `#{version}` and 404s if they drift
 - Day-to-day dev iteration (not a real release) is just: `./build.sh` (debug), quit the running `/Applications` copy, copy the new `.build/.../debug/BetterCheatsheet.app` over it, relaunch
