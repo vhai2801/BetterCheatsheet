@@ -32,7 +32,7 @@ struct EditorView: View {
             Divider()
 
             if appState.isShowingSettings {
-                SettingsView(settings: settings)
+                SettingsView(settings: settings, appState: appState)
             } else if let index = appState.selectedIndex {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 10) {
