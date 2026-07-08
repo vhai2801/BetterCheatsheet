@@ -1,0 +1,67 @@
+# Better Cheatsheet
+
+## Overview
+A native macOS menu-bar/window app for keeping notes on custom keyboard shortcuts. Notes live in user-named tabs (unlimited, no default tab) in a top tab bar; tabs can be dragged to reorder. A tab's format is fixed at creation and never changes afterward:
+- The "+" button opens a popover to choose one of two templated two-column table formats (`ShortcutTableView`): **Keyboard Shortcut** (physical modifier-key capture in the Shortcut column - hold ⌘⇧⌥⌃/Space/Return/arrows to insert their symbol instantly; Tab single-press inserts "⇥", double-tap moves focus) or **Trackpad Shortcut** (header relabeled "Trackpad Shortcut"; the Shortcut column instead uses an ALL-CAPS-keyword auto-replace, e.g. typing `CMD ` inserts "⌘ ", since trackpad gestures are free text).
+- The note-icon button creates a freeform rich-text **Note tab** instead (bold/font-size/font-panel/line-spacing toolbar).
+
+A global hotkey (default ⇧⌘K) toggles a floating overlay panel - a quick-glance view of the same tabs (Note tabs are always editable there too; table tabs stay read-only), with an ellipsis button to jump to the main editor. Settings (gear icon) covers the hotkey recorder, optional left/right modifier-side matching, and Light/Dark/Frosted-Glass theme (Frosted Glass affects the overlay only - the main window always stays opaque). No network access; notes/settings are stored locally at `~/Library/Application Support/BetterCheatsheet/tabs.json` and `settings.json`.
+
+Built as a Swift Package (not an Xcode project) since only Command Line Tools are installed. `build.sh` wraps the compiled binary into an ad-hoc-codesigned `.app` bundle (`--release` for a release build).
+
+## Architecture map
+- `Package.swift` — executable target `BetterCheatsheet`, macOS 13+, zero dependencies
+- `Sources/BetterCheatsheet/main.swift` — entry point: creates `NSApplication`, `.regular` activation policy, assigns `AppDelegate`, calls `app.run()`
+- `Sources/BetterCheatsheet/AppDelegate.swift` — owns the main `NSWindow`, the floating `OverlayPanel` (`NSPanel` subclass, borderless + non-opaque/clear so `CheatsheetView`'s own `.clipShape` gives it rounded corners), the `NSStatusItem` menu, and hotkey registration (`HotKeyManager` or `SideSensitiveHotKeyMonitor`, based on `hotKey.sideSensitive`). `setUpMainMenu()` builds `NSApp.mainMenu` (App/Edit/Window menus) - **required**: a bare Swift executable gets no menu bar from AppKit at all otherwise, so without this Cmd+W/M/C/V/X/Z/A silently do nothing anywhere. Edit menu items use nil targets (route through the responder chain to whatever's first responder); Undo/Redo use the informal `Selector(("undo:"))`/`Selector(("redo:"))`. `windowWillClose` drops the Dock icon when the main window closes (menu-bar-only mode); `applicationShouldHandleReopen` restores it. `applicationWillTerminate` flushes the debounced save.
+- `Sources/BetterCheatsheet/HotKeyManager.swift` — wraps Carbon `RegisterEventHotKey`, chosen over `CGEventTap` to avoid an Accessibility permission prompt
+- `Sources/BetterCheatsheet/SideSensitiveHotKeyMonitor.swift` — alternative hotkey path when left/right modifier side matters (Carbon can't distinguish sides at all); global+local `NSEvent` monitors, needs Accessibility permission
+- `Sources/BetterCheatsheet/Models.swift` — `ShortcutRow` (plain `shortcut`/`action` strings, no rich text) and `TabItem` (`editableInOverlay` doubles as "is this a Note tab"; `isTrackpadTemplate` picks the table sub-format, meaningful only when `editableInOverlay` is false; content is RTF `Data`, decode results cached in a bounded `NSCache`). `AppState` seeds fresh installs with `starterTabs()` (two pre-filled tabs) - **do not reintroduce a bare `tabs = []` fallback**. Saves are debounced ~0.4s (`scheduleSave`/`flushPendingSave`) since every keystroke mutates `tabs`.
+- `Sources/BetterCheatsheet/TextReplacement.swift` — `spelledOut(_:)` (symbol → text, e.g. "⌘⇧K" → "Cmd Shift K", for the display-as-text Settings toggle) and `map`/`replacement(in:beforeLocation:)` (ALL-CAPS keyword → symbol, used only by the Trackpad template's Shortcut column)
+- `Sources/BetterCheatsheet/AutoReplaceTextEditor.swift` — rich-text `NSTextView` wrapper for Note tabs. **Do not remove** `Coordinator.parent = self` in `updateNSView` (otherwise every tab but the first becomes untypable) or the `isProgrammaticUpdate` guard in `textDidChange` (otherwise every tab switch writes content back into the model and re-saves).
+- `Sources/BetterCheatsheet/TextFormattingController.swift` — Bold/font-size/line-spacing for the Note tab's `NSTextView`. Line spacing uses `NSParagraphStyle.lineSpacing` (points added between lines), not `lineHeightMultiple` (which also inflates the blinking cursor's own box). **Known limitation, accepted, do not attempt to fix without being asked**: the cursor still renders oversized on every line after a line break once spacing is above 1x.
+- `Sources/BetterCheatsheet/TabBarView.swift` — scrollable tab bar with gap-based drag-to-reorder (`gapView` markers track the drag's raw position, not hover-testing). `allowReordering` disables reordering in the overlay via `.highPriorityGesture(gesture, including: allowReordering ? .all : .none)` - **do not** wrap the gesture attachment itself in an `if/else`, that changes the view's type per-render and breaks in-flight drag tracking. `TabButton` uses a single plain `.onTapGesture` - **do not add a `count: 2` sibling** (forces a double-click-window delay on every single tap). The "+" button opens a `.popover` (not a `Menu`) to choose Keyboard/Trackpad template; popover rows are plain `.onTapGesture` views, not `Button` (a real `Button` picks up an unwanted AppKit focus ring in a popover).
+- `Sources/BetterCheatsheet/FramePreferenceKey.swift` — generic `UUIDFramePreferenceKey<Tag: FrameTag>`, a `[UUID: CGRect]`-merging `PreferenceKey`; the phantom `Tag` gives each call site (tab frames, row frames, grip frames) its own preference channel so they don't clobber each other
+- `Sources/BetterCheatsheet/EditorView.swift` — main window content: tab bar + per-tab toolbar (rich-text controls for Note tabs, Add-row/font-size for table tabs, both plus a shared `lineSpacingMenu(onSelect:)`) + `AutoReplaceTextEditor`/`ShortcutTableView`/`SettingsView` for the selected tab. `ShortcutTableView` is `.id(tab.id)`-tagged to force a fresh mount per tab (needed for focus-on-appear to refire).
+- `Sources/BetterCheatsheet/CheatsheetView.swift` — overlay content: tab bar (no add controls) + read-only content. Root view uses a flexible `.frame(minWidth:maxWidth:minHeight:maxHeight:)` - **do not hardcode a fixed frame**, it fights the panel's own resizing.
+- `Sources/BetterCheatsheet/ShortcutTableView.swift` — the two-column Grid-based table. `ShortcutCaptureMode` (`.none`/`.keyboard`/`.trackpad`) drives the Shortcut column's `NSTextField`: `.keyboard` does physical modifier-key capture (Hyper = all 4 modifiers in one `flagsChanged` event; Fn has no glyph so inserts "fn "; Tab double-tap distinguishes symbol-insert from real navigation - use `selectKeyView(following/preceding:)`, not `selectNextKeyView`, which resolves against the transient field editor and no-ops); `.trackpad` runs the ALL-CAPS auto-replace instead. Read-only (overlay) Shortcut text applies `TextReplacement.spelledOut(_:)` **only for the Keyboard template** (it mangles Trackpad free text letter-by-letter otherwise). `extraLineSpacing`/`shortcutTableLineSpacing` scale both row-to-row Grid spacing and wrapped-line `.lineSpacing(_:)`. `ShortcutTableTextField` sets `.byTruncatingTail` (not the default `.byClipping`) so overflow shows "…". Known `Grid` quirks: modifiers chained after a `GridRow` broadcast to every cell individually, not the row as a unit (attach frame-measuring `GeometryReader`s to a specific cell); the Grid needs `.fixedSize(horizontal: true, vertical: true)` (both axes) or a tall viewport re-stretches its rows; the `ScrollView` needs both `[.horizontal, .vertical]` and a content `.frame(minWidth:minHeight:)` pinned to its own measured size (not `.infinity`) to avoid centering/clipping short or narrow content.
+- `Sources/BetterCheatsheet/Settings.swift` — `SettingsStore` persists theme/hotkey/table-column-width-inset-font-size/display-as-text/line-spacing to `settings.json`, shared between the main window and overlay (two separate `ShortcutTableView` instances that must agree on layout). `init()` decodes `Persisted?` once and takes every field as `decoded?.field ?? default` in one pass.
+- `Sources/BetterCheatsheet/ModifierKeyCode.swift` — maps physical left/right modifier keyCodes to `NSEvent.ModifierFlags` category/symbol/display order; `updating(_:for:)` tracks a held-modifiers set from a `flagsChanged` event (shared by `HotKeyRecorderView` and `SideSensitiveHotKeyMonitor`)
+- `Sources/BetterCheatsheet/AccessibilityPermission.swift` — thin `AXIsProcessTrustedWithOptions` wrapper, needed only for side-sensitive hotkey matching
+- `Sources/BetterCheatsheet/CapsLockSuppressor.swift` — force-clears the OS's native Caps Lock state via `IOHIDSetModifierLockState` (plain IOKit call, no permission needed), for a Caps Lock remapped to a Hyper key that still also engages the native lock
+- `Sources/BetterCheatsheet/HotKeyFormatter.swift` — `HotKeyConfig` → display string; `character(forKeyCode:)` is memoized (Carbon's `UCKeyTranslate` isn't free and gets called on every SettingsView render otherwise)
+- `Sources/BetterCheatsheet/HotKeyRecorderView.swift` — click-to-record `NSView`; Esc cancels; always tracks specific held modifier keyCodes regardless of whether side-sensitivity is currently on
+- `Sources/BetterCheatsheet/VisualEffectBackground.swift` — `NSVisualEffectView` wrapper; the hosting window must be non-opaque/clear for `.behindWindow` blending to show the desktop through it
+- `Info.plist` — bundle metadata (`LSMinimumSystemVersion` 13.0, no network entitlements, `CFBundleIconFile: AppIcon`)
+- `Resources/AppIcon.icns` — white ⌘ glyph on a purple-to-blue gradient squircle, drawn programmatically (no Xcode asset catalog available) and compiled via `sips`/`iconutil`
+- `build.sh` — `swift build` + manual `.app` bundle assembly + ad-hoc `codesign`
+
+## Release process (Homebrew cask distribution)
+The app is distributed as a Homebrew cask so the user can install/update from the terminal on any machine. **This is the runbook whenever asked to "update the app and push a new version."**
+
+**Where things live:**
+- Main repo: `https://github.com/vhai2801/BetterCheatsheet` (public, so release assets are downloadable by `brew install` with zero auth)
+- Tap repo: `https://github.com/vhai2801/homebrew-better-cheatsheet`, local clone at `~/Projects/homebrew-better-cheatsheet` — clone it first if it isn't there on this machine
+- Cask file: `Casks/better-cheatsheet.rb` in the tap repo
+- User installs with `brew tap vhai2801/better-cheatsheet && brew install --cask better-cheatsheet`; updates with `brew update && brew upgrade --cask better-cheatsheet`
+
+**To cut a new release (vX.Y.Z), in order:**
+1. In `~/Projects/BetterCheatsheet`, bump `CFBundleShortVersionString` in `Info.plist`
+2. `./build.sh --release`
+3. `ditto -c -k --keepParent .build/arm64-apple-macosx/release/BetterCheatsheet.app BetterCheatsheet-X.Y.Z.zip` — use `ditto`, not `zip -r`, to avoid mangling the `.app` bundle
+4. `shasum -a 256 BetterCheatsheet-X.Y.Z.zip` — save the hash
+5. Commit the version bump, push, then `git tag vX.Y.Z && git push origin vX.Y.Z`
+6. `gh release create vX.Y.Z BetterCheatsheet-X.Y.Z.zip --title "vX.Y.Z" --notes "..."`
+7. Verify: `curl -sL -o /dev/null -w "%{http_code}\n" "https://github.com/vhai2801/BetterCheatsheet/releases/download/vX.Y.Z/BetterCheatsheet-X.Y.Z.zip"` should print `200`
+8. In `~/Projects/homebrew-better-cheatsheet`, update `version`/`sha256` in `Casks/better-cheatsheet.rb`, commit, push
+9. Test locally: `brew update && brew upgrade --cask better-cheatsheet`, confirm the installed app reports the new version
+
+**Gotchas:**
+- Cask needs `depends_on macos: :ventura` (bare symbol, not the deprecated string-comparison form)
+- First tap on a machine needs `brew trust vhai2801/better-cheatsheet` once, or install fails with "untrusted tap"
+- Not notarized (no paid Apple Developer ID) - the cask's `postflight` `xattr -dr com.apple.quarantine` block is required or every fresh install needs a manual right-click-Open
+- Keep `CFBundleShortVersionString`, the git tag, and the cask's `version` identical - the cask's `url` is built from `#{version}` and 404s if they drift
+- Day-to-day dev iteration (not a real release) is just: `./build.sh` (debug), quit the running `/Applications` copy, copy the new `.build/.../debug/BetterCheatsheet.app` over it, relaunch
+- Picking the next version yourself (saying "cut a release" is sufficient authorization - see the `bettercheatsheet-no-release-until-told` memory, no need to confirm the number): follow the patch-bump trend with rollover - only the major number may exceed 9, e.g. `1.0.8 → 1.0.9 → 1.1.0 → ... → 1.9.9 → 2.0.0`, never `1.0.10`
+
+## Next steps
+Nothing currently outstanding. Add items here as they come up; delete them once resolved rather than keeping a permanent log.
