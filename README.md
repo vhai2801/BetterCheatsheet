@@ -2,6 +2,8 @@
 
 A native macOS app for keeping notes on your custom keyboard shortcuts, with a global hotkey that pops up a floating "cheatsheet" overlay so you never have to leave what you're doing to remember one.
 
+> This is a personal app I built to fit my own workflow. If it happens to fit yours too, feel free to download and use it — and I'd genuinely welcome any feedback.
+
 ## Features
 
 - **Three tab types**: via the "+" button, a templated two-column table for either **Keyboard Shortcuts** (physical modifier-key capture, see below) or **Trackpad Shortcuts** (an ALL-CAPS-keyword auto-replace instead, e.g. typing `CMD ` inserts "⌘ ", since trackpad gestures are described in longer free text) — or, via the note-icon button, a freeform rich-text Note tab. A tab's type is fixed at creation and can't be flipped afterward
