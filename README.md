@@ -4,6 +4,12 @@ A native macOS app for keeping notes on your custom keyboard shortcuts, with a g
 
 > This is a personal app I built to fit my own workflow. If it happens to fit yours too, feel free to download and use it — and I'd genuinely welcome any feedback.
 
+## Screenshots
+
+| Main window | Settings | Overlay |
+| --- | --- | --- |
+| ![Main window](./screenshots/main-window.png) | ![Settings](./screenshots/settings.png) | ![Overlay](./screenshots/overlay.png) |
+
 ## Features
 
 - **Three tab types**: via the "+" button, a templated two-column table for either **Keyboard Shortcuts** (physical modifier-key capture, see below) or **Trackpad Shortcuts** (an ALL-CAPS-keyword auto-replace instead, e.g. typing `CMD ` inserts "⌘ ", since trackpad gestures are described in longer free text) — or, via the note-icon button, a freeform rich-text Note tab. A tab's type is fixed at creation and can't be flipped afterward
