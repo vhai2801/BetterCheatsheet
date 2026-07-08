@@ -774,20 +774,6 @@ private enum ShortcutCaptureMode {
     case none, keyboard, trackpad
 }
 
-/// A plain NSTextField that refuses every Edit-menu action (Copy/Cut/Paste/
-/// Undo/Redo/Select All - see AppDelegate.setUpMainMenu) while it has
-/// focus. Used only for the Keyboard template's Shortcut column: composing
-/// a shortcut label there means literally holding e.g. Cmd+C/Cmd+V/Cmd+Z,
-/// and a real app-wide Edit menu (added for Note tabs) would otherwise
-/// intercept exactly those key combos as its own Copy/Paste/Undo before
-/// this field's physical-key-capture logic ever sees the letter, breaking
-/// the one feature that makes this column what it is.
-private final class KeyboardCaptureTextField: NSTextField, NSMenuItemValidation {
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        false
-    }
-}
-
 /// A plain single-line NSTextField used for every table cell. SwiftUI's
 /// TextField has no way on macOS 13 to intercept individual keystrokes or
 /// Tab, so this wraps NSTextField directly to get both:
@@ -810,15 +796,7 @@ private struct ShortcutTableTextField: NSViewRepresentable {
     var captureMode: ShortcutCaptureMode = .none
 
     func makeNSView(context: Context) -> NSTextField {
-        // The Keyboard template's whole point is composing shortcuts like
-        // "⌘C"/"⌘V"/"⌘Z" by literally holding those keys - AppDelegate's
-        // Edit menu (added for Note tabs, etc.) gives the *app* real Cmd+C/
-        // V/Z/A key equivalents now, which would otherwise intercept
-        // exactly those keystrokes here before they ever reach this field
-        // as typed characters. KeyboardCaptureTextField disables Edit-menu
-        // validation while it holds focus so they keep landing as literal
-        // text instead, same as before that menu existed.
-        let field = captureMode == .keyboard ? KeyboardCaptureTextField() : NSTextField()
+        let field = NSTextField()
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
